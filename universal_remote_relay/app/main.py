@@ -23,6 +23,7 @@ class Settings:
     log_level: str = "info"
     apple_tv_identifier: str = ""
     scan_interval: int = 300
+    diagnostic_only: bool = True
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> "Settings":
@@ -38,7 +39,12 @@ class Settings:
             log_level=log_level,
             apple_tv_identifier=str(raw.get("apple_tv_identifier", "")).strip(),
             scan_interval=scan_interval,
+            diagnostic_only=raw.get("diagnostic_only", True) if isinstance(raw.get("diagnostic_only", True), bool) else _invalid_bool(),
         )
+
+
+def _invalid_bool() -> bool:
+    raise ValueError("diagnostic_only must be a boolean")
 
 
 def load_settings(path: Path = OPTIONS_PATH) -> Settings:
@@ -93,12 +99,16 @@ async def scan_once(settings: Settings) -> None:
 
 async def run(settings: Settings) -> None:
     LOGGER.info(
-        "Starting Universal Remote Relay version=0.1.0 architecture=%s mode=observation-only",
+        "Starting Universal Remote Relay version=0.1.2 architecture=%s mode=%s",
         platform.machine(),
+        "diagnostic-only" if settings.diagnostic_only else "observation-only",
     )
     LOGGER.warning(
         "Google TV receiver discovery/pairing is not implemented or verified; no listener is running"
     )
+    if settings.diagnostic_only:
+        LOGGER.info("Diagnostic-only mode active: Apple TV discovery disabled; no network listener or command dispatch")
+        return
     while True:
         try:
             await scan_once(settings)
