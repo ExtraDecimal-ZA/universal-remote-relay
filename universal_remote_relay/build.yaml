@@ -1,0 +1,6 @@
+build_from:
+  aarch64: ghcr.io/home-assistant/base-python:3.14-alpine3.24
+labels:
+  org.opencontainers.image.title: Universal Remote Relay
+  org.opencontainers.image.description: Local-only experimental remote relay
+  org.opencontainers.image.source: https://github.com/ExtraDecimal-ZA/universal-remote-relay
