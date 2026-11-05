@@ -1,21 +1,15 @@
 name: Universal Remote Relay
-version: "0.1.2"
+version: "0.1.3"
 slug: universal_remote_relay
-description: Experimental local remote relay for Google TV and Apple TV
+description: Safe diagnostic-only build; no network discovery or remote control
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay
-startup: services
+startup: application
 boot: manual
 init: false
-host_network: true
+host_network: false
 arch:
   - aarch64
 options:
   log_level: info
-  apple_tv_identifier: ""
-  scan_interval: 300
-  diagnostic_only: true
 schema:
   log_level: list(debug|info|warning|error)
-  apple_tv_identifier: str
-  scan_interval: int(30,3600)
-  diagnostic_only: bool
