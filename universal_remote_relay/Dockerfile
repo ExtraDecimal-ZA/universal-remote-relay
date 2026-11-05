@@ -2,7 +2,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.14-alpine3.24
 FROM ${BUILD_FROM}
 
 ARG BUILD_ARCH=aarch64
-ARG BUILD_VERSION=0.1.0
+ARG BUILD_VERSION=0.1.1
 
 LABEL \
     io.hass.arch="${BUILD_ARCH}" \

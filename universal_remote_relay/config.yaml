@@ -1,5 +1,5 @@
 name: Universal Remote Relay
-version: "0.1.0"
+version: "0.1.1"
 slug: universal_remote_relay
 description: Experimental local remote relay for Google TV and Apple TV
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay

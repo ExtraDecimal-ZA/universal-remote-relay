@@ -69,6 +69,26 @@ Home Assistant's current supported Pi 3B+ path is the 64-bit
 `raspberrypi3-64` image. This scaffold intentionally does not advertise
 obsolete 32-bit `armv7` support.
 
+## Install for the first device test
+
+1. In Home Assistant, open **Settings → System → Repairs → ⋮ → System
+   information** and confirm the architecture is `aarch64`.
+2. Open **Settings → Add-ons → Add-on Store → ⋮ → Repositories** and add:
+
+   ```text
+   https://github.com/ExtraDecimal-ZA/universal-remote-relay
+   ```
+
+3. Install **Universal Remote Relay** but leave `apple_tv_identifier` blank.
+4. Start the add-on and open its **Log** tab.
+5. Stop if the log does not say `observation-only`, or if it contains anything
+   resembling credentials. Otherwise record the intended Apple TV's stable
+   identifier for Gate 1.
+
+The Raspberry Pi, Apple TV, and phone must use the same non-guest LAN for the
+later discovery test. Do not create router port-forwarding rules for this
+add-on.
+
 ## Local checks
 
 From `universal_remote_relay`:
