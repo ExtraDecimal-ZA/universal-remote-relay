@@ -108,7 +108,8 @@ async def run(settings: Settings) -> None:
     )
     if settings.diagnostic_only:
         LOGGER.info("Diagnostic-only mode active: Apple TV discovery disabled; no network listener or command dispatch")
-        return
+        while True:
+            await asyncio.sleep(3600)
     while True:
         try:
             await scan_once(settings)
