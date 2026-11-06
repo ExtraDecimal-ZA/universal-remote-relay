@@ -1,15 +1,17 @@
 name: Universal Remote Relay
-version: "0.1.3"
+version: "0.1.4"
 slug: universal_remote_relay
-description: Safe diagnostic-only build; no network discovery or remote control
+description: Experimental opt-in one-shot Apple TV discovery
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay
 startup: application
 boot: manual
 init: false
-host_network: false
+host_network: true
 arch:
   - aarch64
 options:
   log_level: info
+  enable_single_scan: false
 schema:
   log_level: list(debug|info|warning|error)
+  enable_single_scan: bool
