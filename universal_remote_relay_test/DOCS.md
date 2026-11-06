@@ -1,4 +1,4 @@
-# Universal Remote Relay (Experimental) v0.1.5
+# Universal Remote Relay (Experimental) v0.1.6
 
 This is a **separate test add-on**. The stable `Universal Remote Relay` v0.1.3 add-on remains installed independently.
 
@@ -14,14 +14,15 @@ This is a **separate test add-on**. The stable `Universal Remote Relay` v0.1.3 a
 ## What it does
 
 - With `enable_single_scan: false`, runs an idle Python process without importing pyatv or scanning.
-- With `enable_single_scan: true`, performs a single bounded Apple TV discovery attempt on startup, then idles.
-- `target_name` optionally limits reported results to an exact device name. For
-  the current test, set it to `Living Room`.
+- With `enable_single_scan: true`, performs one bounded Apple TV discovery attempt on startup. A failed scan exits unsuccessfully so Home Assistant does not report a misleading healthy idle process.
+- `target_name` optionally limits the initial discovery to an exact device name.
+  Treat it as a temporary bootstrap value because names can change.
 - The scan logs the matching device's primary and available non-secret
   identifiers. Copy the primary identifier into `target_identifier` for later
   scans; clear `target_name` after the identifier has been verified.
-- When `target_identifier` is set, pyatv filters discovery to that stable device
-  identifier instead of relying on a potentially changing name or IP address.
+- When `target_identifier` is set, it takes precedence and `target_name` is
+  ignored. pyatv filters discovery to the stable identifier instead of relying
+  on a potentially changing name or IP address.
 - Does not pair, send remote commands, advertise a Google TV receiver, or listen for remote commands.
 - Uses host networking for mDNS discovery; it has not yet been runtime-tested on the Raspberry Pi 3B+.
 

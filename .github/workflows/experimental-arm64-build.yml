@@ -5,6 +5,10 @@ on:
     paths:
       - 'universal_remote_relay_test/**'
       - '.github/workflows/experimental-arm64-build.yml'
+  pull_request:
+    paths:
+      - 'universal_remote_relay_test/**'
+      - '.github/workflows/experimental-arm64-build.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,6 +31,5 @@ jobs:
           platforms: linux/arm64
           push: false
           build-args: |
-            BUILD_FROM=ghcr.io/home-assistant/base-python:3.14-alpine3.24
             BUILD_ARCH=aarch64
-            BUILD_VERSION=0.1.5
+            BUILD_VERSION=0.1.6

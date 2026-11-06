@@ -1,5 +1,5 @@
 build_from:
-  aarch64: ghcr.io/home-assistant/base-python:3.14-alpine3.24
+  aarch64: ghcr.io/home-assistant/base-python:3.14-alpine3.24-2026.08.0
 labels:
   org.opencontainers.image.title: Universal Remote Relay
   org.opencontainers.image.description: Isolated experimental Apple TV discovery

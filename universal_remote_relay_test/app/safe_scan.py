@@ -40,9 +40,14 @@ def identifiers_for(device):
     return sorted(str(identifier) for identifier in device.all_identifiers if identifier)
 
 
-async def scan_once(target_name="", target_identifier=""):
-    import pyatv
+async def scan_once(target_name="", target_identifier="", scan_func=None):
+    if scan_func is None:
+        import pyatv
 
+        scan_func = pyatv.scan
+
+    if target_identifier and target_name:
+        LOG.info("Stable identifier configured; target_name is ignored")
     LOG.info(
         "Starting one Apple TV discovery scan; target_name=%r identifier_filter=%s",
         target_name or None,
@@ -53,35 +58,46 @@ async def scan_once(target_name="", target_identifier=""):
         if target_identifier:
             scan_options["identifier"] = target_identifier
         devices = await asyncio.wait_for(
-            pyatv.scan(asyncio.get_running_loop(), **scan_options),
+            scan_func(asyncio.get_running_loop(), **scan_options),
             timeout=20,
         )
     except asyncio.TimeoutError:
-        LOG.warning("Apple TV discovery timed out")
+        LOG.error("Apple TV discovery timed out")
+        LOG.info("Discovery ended; no further scans scheduled")
+        return False
     except Exception:
         LOG.exception("Apple TV discovery failed")
-    else:
-        LOG.info("Discovery completed: %d device(s)", len(devices))
-        matches = [device for device in devices if matches_target(device, target_name)]
-        if target_name and not matches:
-            LOG.warning("No device matched target name %r", target_name)
-        for device in matches:
-            LOG.info(
-                "Apple TV: name=%r address=%s identifier=%r all_identifiers=%s",
-                device.name,
-                device.address,
-                device.identifier,
-                identifiers_for(device),
-            )
+        LOG.info("Discovery ended; no further scans scheduled")
+        return False
+
+    LOG.info("Discovery completed: %d device(s)", len(devices))
+    matches = devices if target_identifier else [
+        device for device in devices if matches_target(device, target_name)
+    ]
+    if target_identifier and not matches:
+        LOG.warning("No device matched the configured stable identifier")
+    elif target_name and not matches:
+        LOG.warning("No device matched target name %r", target_name)
+    for device in matches:
+        LOG.info(
+            "Apple TV: name=%r address=%s identifier=%r all_identifiers=%s",
+            device.name,
+            device.address,
+            device.identifier,
+            identifiers_for(device),
+        )
     LOG.info("Discovery ended; no further scans scheduled")
+    return bool(matches)
 
 
 def main():
     enabled, level, target_name, target_identifier = load_options()
     logging.basicConfig(level=getattr(logging, level.upper()), format="%(levelname)s %(message)s")
-    LOG.info("Universal Remote Relay v0.1.5; single scan enabled=%s", enabled)
+    LOG.info("Universal Remote Relay v0.1.6; single scan enabled=%s", enabled)
     if enabled:
-        asyncio.run(scan_once(target_name, target_identifier))
+        if not asyncio.run(scan_once(target_name, target_identifier)):
+            LOG.error("The requested one-shot discovery did not find its target")
+            raise SystemExit(1)
     else:
         LOG.info("Safe idle mode; discovery disabled")
     while True:

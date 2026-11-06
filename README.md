@@ -66,17 +66,19 @@ protocol feasibility testing.
 
 Verified on 2026-11-06:
 
-- Stable v0.1.3 and separate experimental v0.1.4 are installed in Home
-  Assistant and remain stopped.
+- Stable v0.1.3 and the last verified experimental installation (v0.1.4) were
+  installed in Home Assistant and left stopped. Experimental v0.1.6 is a new
+  candidate and must not be treated as installed until Home Assistant confirms it.
 - Start on boot, Watchdog, and Auto update are disabled for the experimental
   add-on, and `enable_single_scan` remains `false`.
 - GitHub Actions successfully validates the project and builds the experimental
   ARM64 container image.
-- Six retained prototype tests and three experimental safe-scan tests pass.
+- Six retained prototype tests and nine experimental safe-scan tests pass.
 
-Still pending: a controlled manual startup, Raspberry Pi CPU/RAM and stability
-observation, and then an explicitly enabled one-shot Apple TV scan. Google TV
-receiver discovery and pairing remain unimplemented and unverified.
+Still pending: install/update the experimental add-on to v0.1.6, confirm the
+stable Apple TV identifier is configured, perform a controlled manual startup,
+and observe Raspberry Pi CPU/RAM and stability. Google TV receiver discovery
+and pairing remain unimplemented and unverified.
 
 ## License
 

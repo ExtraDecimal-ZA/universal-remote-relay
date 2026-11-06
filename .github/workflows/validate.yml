@@ -19,12 +19,14 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: universal_remote_relay/requirements.txt
+          cache-dependency-path: |
+            universal_remote_relay/requirements.txt
+            universal_remote_relay_test/requirements.txt
 
       - name: Install runtime and validation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r universal_remote_relay/requirements.txt PyYAML
+          python -m pip install -r universal_remote_relay/requirements.txt -r universal_remote_relay_test/requirements.txt PyYAML
 
       - name: Validate YAML files
         run: |
@@ -36,6 +38,8 @@ jobs:
               "repository.yaml",
               "universal_remote_relay/config.yaml",
               "universal_remote_relay/build.yaml",
+              "universal_remote_relay_test/config.yaml",
+              "universal_remote_relay_test/build.yaml",
           ):
               with Path(filename).open(encoding="utf-8") as stream:
                   document = yaml.safe_load(stream)
@@ -44,12 +48,16 @@ jobs:
           PY
 
       - name: Run unit tests
-        working-directory: universal_remote_relay
-        run: python -m unittest discover -s tests -v
+        run: |
+          (cd universal_remote_relay && python -W error -m unittest discover -s tests -v)
+          (cd universal_remote_relay_test && python -W error -m unittest discover -s tests -v)
 
       - name: Compile service
-        working-directory: universal_remote_relay
-        run: python -m compileall app
+        run: |
+          python -m compileall universal_remote_relay/app
+          python -m compileall universal_remote_relay_test/app
 
       - name: Check launcher syntax
-        run: bash -n universal_remote_relay/run.sh
+        run: |
+          bash -n universal_remote_relay/run.sh
+          bash -n universal_remote_relay_test/run.sh

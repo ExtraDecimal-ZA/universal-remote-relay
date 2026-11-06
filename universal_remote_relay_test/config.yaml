@@ -1,5 +1,5 @@
 name: Universal Remote Relay (Experimental)
-version: "0.1.5"
+version: "0.1.6"
 slug: universal_remote_relay_test
 description: Separate experimental opt-in one-shot Apple TV discovery; stable add-on untouched
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay

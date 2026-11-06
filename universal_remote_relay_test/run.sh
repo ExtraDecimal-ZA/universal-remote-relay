@@ -1,4 +1,4 @@
 #!/usr/bin/with-contenv bashio
 set -eu
-bashio::log.info "Universal Remote Relay v0.1.5 starting"
+bashio::log.info "Universal Remote Relay v0.1.6 starting"
 exec python3 -u /app/safe_scan.py

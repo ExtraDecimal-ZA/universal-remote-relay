@@ -1,12 +1,23 @@
 # Changelog
 
+## 0.1.6 (Experimental) — 2026-11-06
+
+- Made stable identifiers override device names, so later name changes do not
+  prevent the intended Apple TV from being reported.
+- Made scan timeouts, exceptions, and no-match outcomes exit unsuccessfully
+  instead of appearing as a healthy idle process.
+- Added current Home Assistant Docker defaults and pinned base-image releases;
+  retained `build.yaml` only for compatibility with older installations.
+- Expanded validation to cover both add-ons and pull-request ARM64 builds.
+- Removed private device names and addresses from current documentation.
+
 ## 0.1.5 (Experimental) — 2026-11-06
 
 - Added logging for primary and available non-secret pyatv identifiers.
 - Added optional exact-name and stable-identifier discovery filters.
 - Kept single-scan discovery explicitly disabled by default.
-- Confirmed `Living Room` at `192.168.1.91` as the intended Apple TV; the IP is
-  recorded only as test evidence and is not used as the persistent selector.
+- Confirmed the intended Apple TV during a local test; its name and address are
+  not persistent selectors.
 
 ## 0.1.4 (Experimental) — 2026-11-06
 
