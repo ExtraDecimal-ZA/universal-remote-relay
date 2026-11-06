@@ -1,42 +1,58 @@
-"""Opt-in, single Apple TV discovery; no pairing or remote commands."""
+"""Opt-in one-shot Apple TV discovery. No pairing, listener, or remote commands."""
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-LOG = logging.getLogger("relay")
+LOG = logging.getLogger("universal_remote_relay")
 OPTIONS = Path("/data/options.json")
 
-async def scan():
+
+def load_options(path=OPTIONS):
+    raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not isinstance(raw, dict):
+        raise ValueError("Options must be an object")
+    enabled = raw.get("enable_single_scan", False)
+    if type(enabled) is not bool:
+        raise ValueError("enable_single_scan must be a boolean")
+    level = raw.get("log_level", "info")
+    if level not in ("debug", "info", "warning", "error"):
+        raise ValueError("Unsupported log_level")
+    return enabled, level
+
+
+async def scan_once():
     import pyatv
-    LOG.info("Starting one Apple TV scan (10 second timeout)")
+
+    LOG.info("Starting one Apple TV discovery scan")
     try:
         devices = await asyncio.wait_for(
-            pyatv.scan(asyncio.get_running_loop(), timeout=10), timeout=20
+            pyatv.scan(asyncio.get_running_loop(), timeout=10),
+            timeout=20,
         )
-        LOG.info("Discovery complete; devices found: %d", len(devices))
-        for device in devices:
-            LOG.info("Apple TV discovered: name=%r address=%s", device.name, device.address)
+    except asyncio.TimeoutError:
+        LOG.warning("Apple TV discovery timed out")
     except Exception:
-        LOG.exception("Single discovery attempt failed")
-    LOG.info("Scan finished; remaining idle without further network activity")
+        LOG.exception("Apple TV discovery failed")
+    else:
+        LOG.info("Discovery completed: %d device(s)", len(devices))
+        for device in devices:
+            LOG.info("Apple TV: name=%r address=%s", device.name, device.address)
+    LOG.info("Discovery ended; no further scans scheduled")
+
 
 def main():
-    options = json.loads(OPTIONS.read_text()) if OPTIONS.exists() else {}
-    if not isinstance(options, dict):
-        raise ValueError("Invalid add-on options")
-    enabled = options.get("enable_single_scan", False)
-    if not isinstance(enabled, bool):
-        raise ValueError("enable_single_scan must be boolean")
+    enabled, level = load_options()
+    logging.basicConfig(level=getattr(logging, level.upper()), format="%(levelname)s %(message)s")
     LOG.info("Universal Remote Relay v0.1.4; single scan enabled=%s", enabled)
     if enabled:
-        asyncio.run(scan())
+        asyncio.run(scan_once())
     else:
-        LOG.info("Safe idle mode: discovery disabled")
-    import time
+        LOG.info("Safe idle mode; discovery disabled")
     while True:
         time.sleep(3600)
+
 
 if __name__ == "__main__":
     main()
