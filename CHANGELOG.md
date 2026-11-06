@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 (Experimental) — 2026-11-06
+
+- Fixed the startup crash caused by calling a Bashio ingress helper that is not
+  present in the pinned Home Assistant base image.
+- Read the Supervisor-assigned dynamic ingress port from the authenticated
+  `/addons/self/info` API instead, without logging the token or opening a host
+  port.
+- Added regression tests for Supervisor port lookup and invalid responses.
+- Changed the release workflow to start the completed ARM64 container and
+  require its selector-readiness message before publishing it.
+
 ## 0.2.0 (Experimental) — 2026-11-06
 
 - Added a private Home Assistant Ingress selector with no published host port.

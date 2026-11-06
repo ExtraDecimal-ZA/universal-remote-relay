@@ -66,6 +66,12 @@ jobs:
           if "ports" in experimental or "webui" in experimental:
               raise SystemExit("experimental selector must not publish a host port")
 
+          launcher = Path("universal_remote_relay_test/run.sh").read_text(
+              encoding="utf-8"
+          )
+          if "bashio::app.ingress_port" in launcher:
+              raise SystemExit("launcher must not depend on unavailable Bashio helper")
+
           for filename in (
               "universal_remote_relay/build.yaml",
               "universal_remote_relay_test/build.yaml",

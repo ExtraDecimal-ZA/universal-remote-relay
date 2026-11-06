@@ -44,6 +44,47 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/universal-remote-relay-test" >> "$GITHUB_OUTPUT"
 
+      - name: Build experimental ARM64 image locally
+        shell: bash
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            --build-arg BUILD_ARCH=aarch64 \
+            --build-arg BUILD_VERSION='${{ steps.image.outputs.version }}' \
+            --tag '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}' \
+            universal_remote_relay_test
+
+      - name: Start finished ARM64 image and verify readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id=""
+          cleanup() {
+            if [[ -n "$container_id" ]]; then
+              docker rm --force "$container_id" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          container_id="$(docker run --detach --platform linux/arm64 \
+            --env INGRESS_PORT=0 \
+            '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}')"
+          ready=false
+          for _ in $(seq 1 20); do
+            logs="$(docker logs "$container_id" 2>&1)"
+            if grep -q 'Private Home Assistant target selector is ready' <<< "$logs"; then
+              ready=true
+              break
+            fi
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$container_id")" != true ]]; then
+              echo "$logs"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs "$container_id"
+          [[ "$ready" == true ]]
+
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -52,18 +93,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish experimental ARM64 image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./universal_remote_relay_test
-          platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            BUILD_ARCH=aarch64
-            BUILD_VERSION=${{ steps.image.outputs.version }}
+      - name: Publish tested experimental ARM64 image
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          docker push '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}'
 
       - name: Verify anonymous ARM64 download
         if: github.event_name != 'pull_request'

@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.2.0
+## Experimental release: v0.2.1
 
-v0.2.0 adds a private, Home Assistant-authenticated selector for saving exactly
+v0.2.1 provides a private, Home Assistant-authenticated selector for saving exactly
 one target device:
 
 1. Open the add-on Web UI.
@@ -34,7 +34,7 @@ Supervisor token to the browser.
   claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.2.0 selector stays experimental until its install, selection, restart,
+v0.2.1 selector stays experimental until its install, selection, restart,
 resource-use, and rollback checks pass on the Pi.
 
 ## Repository installation
@@ -56,6 +56,7 @@ experimental version must pass:
 
 - unit, YAML, compilation, and launcher checks;
 - a prebuilt `linux/arm64` image build;
+- a real startup and readiness check of that completed ARM64 image;
 - an anonymous registry-download check;
 - configuration and documentation consistency checks;
 - basic secret and private-network-data checks.
