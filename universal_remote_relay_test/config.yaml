@@ -1,0 +1,17 @@
+name: Universal Remote Relay (Experimental)
+version: "0.1.4"
+slug: universal_remote_relay_test
+description: Separate experimental opt-in one-shot Apple TV discovery; stable add-on untouched
+url: https://github.com/ExtraDecimal-ZA/universal-remote-relay
+startup: application
+boot: manual
+init: false
+host_network: true
+arch:
+  - aarch64
+options:
+  log_level: info
+  enable_single_scan: false
+schema:
+  log_level: list(debug|info|warning|error)
+  enable_single_scan: bool
