@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 (Experimental) — 2026-11-06
+
+- Added logging for primary and available non-secret pyatv identifiers.
+- Added optional exact-name and stable-identifier discovery filters.
+- Kept single-scan discovery explicitly disabled by default.
+- Confirmed `Living Room` at `192.168.1.91` as the intended Apple TV; the IP is
+  recorded only as test evidence and is not used as the persistent selector.
+
 ## 0.1.4 (Experimental) — 2026-11-06
 
 - Added a separate `Universal Remote Relay (Experimental)` add-on so the stable

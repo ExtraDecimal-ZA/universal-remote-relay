@@ -29,4 +29,4 @@ jobs:
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/base-python:3.14-alpine3.24
             BUILD_ARCH=aarch64
-            BUILD_VERSION=0.1.4
+            BUILD_VERSION=0.1.5
