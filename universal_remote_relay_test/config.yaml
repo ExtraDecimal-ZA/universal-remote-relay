@@ -1,22 +1,30 @@
 name: Universal Remote Relay (Experimental)
-version: "0.1.7"
+version: "0.2.0"
 slug: universal_remote_relay_test
-description: Prebuilt experimental opt-in Apple TV discovery; stable add-on untouched
+description: Private single-target selector with Apple TV and Android TV discovery
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay
 image: ghcr.io/extradecimal-za/universal-remote-relay-test
 startup: application
 boot: manual
 init: false
 host_network: true
+ingress: true
+ingress_port: 0
+panel_title: Remote Relay
+panel_admin: true
 arch:
   - aarch64
 options:
   log_level: info
   enable_single_scan: false
+  target_platform: apple_tv
   target_name: ""
   target_identifier: ""
+  target_address: ""
 schema:
   log_level: list(debug|info|warning|error)
   enable_single_scan: bool
+  target_platform: list(apple_tv|android_tv)
   target_name: str
   target_identifier: str
+  target_address: str

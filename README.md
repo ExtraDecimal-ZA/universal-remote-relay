@@ -1,92 +1,64 @@
 # Universal Remote Relay
 
-Experimental Home Assistant add-on project targeting Raspberry Pi 3B+ (64-bit, aarch64).
+Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
+64-bit `aarch64` Home Assistant OS.
 
-## Current release: v0.1.3 — recovery diagnostic only
+## Experimental release: v0.2.0
 
-**This release is NOT a working Google TV or Apple TV remote relay.**
-It deliberately starts an idle process, without Python, pyatv, network discovery,
-remote-control actions, host networking, or listening ports.
+v0.2.0 adds a private, Home Assistant-authenticated selector for saving exactly
+one target device:
 
-The earlier v0.1.1 build coincided with Home Assistant becoming unresponsive on
-the test Raspberry Pi. Causation has **not** been established. Do not reinstall
-or run the earlier build for troubleshooting.
+1. Open the add-on Web UI.
+2. Choose Apple TV or Android TV / Google TV.
+3. The add-on performs one bounded local discovery scan.
+4. Select one device from the single-choice list.
+5. Its platform, display name, preferred identifier, and current address are saved
+   immediately into the add-on options.
 
-### What happens on startup
+The identifier is the preferred match. Apple TV identifier stability has been
+verified. The Android TV discovery identity remains provisional until pairing
+is implemented and tested. Display names and addresses are informational
+because either can change.
 
-- Logs that diagnostic mode is active.
-- Stays idle until stopped.
-- Does not discover or connect to Apple TV.
-- Does not advertise itself as a Google TV receiver.
-- Does not install Python dependencies.
+The selector uses Home Assistant Ingress with a Supervisor-assigned dynamic
+port. It does not publish a host port, require a separate login, or return the
+Supervisor token to the browser.
 
-### Install and recovery precautions
+## Current capability boundary
 
-1. Recover Home Assistant first; confirm it remains stable **without** this add-on.
-2. Stop the previously installed add-on and disable its Start on boot setting.
-3. Review Supervisor, Core, and host logs for the original crash before proceeding.
-4. Make a Home Assistant backup.
-5. Only then install/update to v0.1.3. Leave Start on boot disabled.
-6. Start manually, read the logs, and monitor system responsiveness. Stop if it
-   becomes unstable.
+- Apple TV discovery through `pyatv`: implemented and physically verified.
+- Android TV Remote v2 discovery: implemented for the next physical test.
+- Apple TV pairing and command dispatch: not implemented.
+- Android TV pairing and command dispatch: not implemented.
+- Google TV receiver emulation and Samsung phone pairing: not implemented or
+  claimed.
 
-The repository can be added to the Home Assistant add-on store using:
+The independent stable add-on remains a recovery diagnostic at v0.1.3. The
+v0.2.0 selector stays experimental until its install, selection, restart,
+resource-use, and rollback checks pass on the Pi.
+
+## Repository installation
+
+Add this repository to the Home Assistant Add-on Store:
 
 `https://github.com/ExtraDecimal-ZA/universal-remote-relay`
 
-**Do not assume the Pi is running v0.1.3 just because this repository was updated.**
-The installed add-on must be updated separately.
+Install **Universal Remote Relay (Experimental)** only after both GitHub
+workflows pass and the versioned ARM64 image is anonymously downloadable.
 
-### Architecture
+Keep Start on boot, Watchdog, Auto update, and automatic startup scanning off
+during the acceptance test.
 
-The manifest currently targets only `aarch64`; a 32-bit Home Assistant OS
-installation is not supported by this build.
+## Release gate
 
-### Code retained for later development
+The Raspberry Pi is the final acceptance test, not a build machine. Every
+experimental version must pass:
 
-`app/main.py` contains earlier observation-only Apple TV discovery code using
-`pyatv`, and `app/relay.py` contains a command mapping prototype. Neither
-file is copied into or executed by the v0.1.3 diagnostic image. The old
-`requirements.txt` is also unused by this build.
-
-Google TV receiver discovery/pairing has **not** been implemented or verified.
-Reintroduce Apple TV discovery only after isolated build tests, memory monitoring,
-and stability checks on the target hardware. Google TV pairing requires separate
-protocol feasibility testing.
-
-## Current build files
-
-- `repository.yaml`: add-on repository metadata
-- `universal_remote_relay/config.yaml`: diagnostic-only add-on manifest
-- `universal_remote_relay/Dockerfile`: minimal image, no pip installation
-- `universal_remote_relay/run.sh`: diagnostic startup and idle process
-
-## Verification status
-
-Verified on 2026-11-06:
-
-- Stable v0.1.3 and experimental v0.1.4 remain the last confirmed installations.
-  The v0.1.6 update stalled at `Installing (0%)` while Home Assistant and the
-  Supervisor remained reachable; it was not accepted as installed.
-- Start on boot, Watchdog, and Auto update are disabled for the experimental
-  add-on, and `enable_single_scan` remains `false`.
-- GitHub Actions validates the project and builds the experimental ARM64 image.
-  Starting with v0.1.7, it must also publish the image and prove an anonymous
-  ARM64 download before the Pi installation is allowed.
-- Six retained prototype tests and nine experimental safe-scan tests pass.
-
-Still pending: complete the v0.1.7 prebuilt-image release gate, then install it
-without a local Pi build, confirm the stable Apple TV identifier, perform a
-controlled manual startup, and observe Raspberry Pi CPU/RAM and stability.
-Google TV receiver discovery and pairing remain unimplemented and unverified.
-
-## Pi installation policy
-
-The Raspberry Pi is the final hardware acceptance test, not a container build
-machine. A new experimental version must not be installed until its checks,
-versioned ARM64 image publication, anonymous pull test, documentation, and
-rollback instructions are complete. The add-on remains manual-start and
-discovery remains opt-in for the first hardware run.
+- unit, YAML, compilation, and launcher checks;
+- a prebuilt `linux/arm64` image build;
+- an anonymous registry-download check;
+- configuration and documentation consistency checks;
+- basic secret and private-network-data checks.
 
 ## License
 

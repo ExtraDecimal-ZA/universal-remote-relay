@@ -1,1 +1,3 @@
 pyatv==0.18.0
+aiohttp==3.14.5
+zeroconf==0.153.0

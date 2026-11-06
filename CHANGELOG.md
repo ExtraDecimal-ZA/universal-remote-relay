@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 (Experimental) — 2026-11-06
+
+- Added a private Home Assistant Ingress selector with no published host port.
+- Added a platform pre-selection for Apple TV or Android TV / Google TV.
+- Added a single-choice discovered-target list; selecting one device
+  immediately saves its platform, name, stable identifier, and current address
+  into the add-on options.
+- Added Android TV Remote v2 discovery without claiming pairing or control.
+- Kept automatic discovery disabled by default and retained bounded validation
+  scans on startup.
+- Added friendly Home Assistant option labels and expanded unit and release
+  validation for the selector.
+
 ## 0.1.7 (Experimental) — 2026-11-06
 
 - Changed Home Assistant installation from a local Pi build to a prebuilt,

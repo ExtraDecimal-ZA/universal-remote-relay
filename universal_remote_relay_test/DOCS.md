@@ -1,47 +1,46 @@
-# Universal Remote Relay (Experimental) v0.1.7
+# Universal Remote Relay (Experimental) v0.2.0
 
-This is a **separate test add-on**. The stable `Universal Remote Relay` v0.1.3 add-on remains installed independently.
+This experimental add-on provides a private, Home Assistant-authenticated
+single-target selector. The stable diagnostic add-on remains separate.
 
-## Before starting
+## Select one target
 
-- Install only after GitHub reports that the versioned ARM64 image was
-  published and its anonymous download check passed. Home Assistant downloads
-  that finished image; it must not build Python dependencies on the Pi.
-- Make a Home Assistant backup and verify it is listed under Backups.
-- Keep stable v0.1.3 installed and its Start on boot setting off.
-- Keep this experimental add-on's Start on boot, Watchdog, and Auto update switches off.
-- Initially leave `enable_single_scan: false` in Configuration.
-- Start the experimental add-on manually; inspect logs and host CPU/RAM before enabling a scan.
-- Do not run both add-ons simultaneously during the first test; stop v0.1.3 before starting the experimental instance, but do not uninstall it.
+1. Start the add-on with **Scan once on startup** disabled.
+2. Open the add-on's **Web UI**.
+3. Choose **Apple TV** or **Android TV / Google TV**.
+4. Wait for the bounded local-network scan.
+5. Select exactly one device from the radio-button list.
 
-## What it does
+The selection is saved immediately into the add-on options:
 
-- Downloads a prebuilt ARM64 container from GitHub Container Registry. The Pi
-  does not run `pip` or resolve pyatv dependencies during installation.
-- With `enable_single_scan: false`, runs an idle Python process without importing pyatv or scanning.
-- With `enable_single_scan: true`, performs one bounded Apple TV discovery attempt on startup. A failed scan exits unsuccessfully so Home Assistant does not report a misleading healthy idle process.
-- `target_name` optionally limits the initial discovery to an exact device name.
-  Treat it as a temporary bootstrap value because names can change.
-- The scan logs the matching device's primary and available non-secret
-  identifiers. Copy the primary identifier into `target_identifier` for later
-  scans; clear `target_name` after the identifier has been verified.
-- When `target_identifier` is set, it takes precedence and `target_name` is
-  ignored. pyatv filters discovery to the stable identifier instead of relying
-  on a potentially changing name or IP address.
-- Does not pair, send remote commands, advertise a Google TV receiver, or listen for remote commands.
-- Uses host networking for mDNS discovery; it has not yet been runtime-tested on the Raspberry Pi 3B+.
+- `target_platform`: selected platform.
+- `target_name`: display name observed during selection; informational only.
+- `target_identifier`: preferred identifier used for matching. Apple TV
+  stability is verified; the Android TV discovery identity remains provisional
+  until pairing is implemented and tested.
+- `target_address`: last observed address; informational fallback only.
 
-## Release gate
+Only one target can be saved. Selecting another device replaces the previous
+selection while preserving unrelated options.
 
-Do not offer a version to the Pi until all of these are complete:
+## Validate the saved target
 
-1. Unit, YAML, compile, and launcher checks pass.
-2. The ARM64 container builds and is published with the same tag as this
-   add-on version.
-3. GitHub verifies that the image can be downloaded without registry
-   credentials and contains a `linux/arm64` manifest.
-4. The repository and container image contain no secrets or private LAN data.
+Enable **Scan once on startup**, restart the add-on, and inspect its log. A
+successful scan reports one matching device. Disable the option afterward to
+return to safe idle mode.
 
-## Stop/rollback
+## Security and scope
 
-Stop the experimental add-on and restart stable v0.1.3 manually. If the system becomes unresponsive, recover Home Assistant first; do not enable automatic startup of the experimental add-on.
+- The selector uses Home Assistant Ingress authentication.
+- It uses a Supervisor-assigned dynamic port and publishes no host port.
+- The web server accepts only the Supervisor ingress proxy.
+- The Supervisor token is used only inside the container and is never returned
+  to the browser or written to the log.
+- Discovery is local and bounded.
+- Apple TV pairing and commands are not implemented yet.
+- Android TV is discovery-only. Pairing and commands are not implemented yet.
+- Google TV receiver emulation and phone pairing are not implemented or
+  claimed.
+
+Keep **Start on boot**, **Watchdog**, and **Auto update** disabled until this
+version passes the Raspberry Pi acceptance test.

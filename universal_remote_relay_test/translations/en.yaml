@@ -1,0 +1,19 @@
+configuration:
+  log_level:
+    name: Log level
+    description: Controls how much diagnostic detail is written to the add-on log.
+  enable_single_scan:
+    name: Scan once on startup
+    description: Runs one bounded validation scan when the add-on starts.
+  target_platform:
+    name: Target platform
+    description: The platform of the one saved target selected in the private web interface.
+  target_name:
+    name: Target display name
+    description: Informational name captured when the target was selected; names may change.
+  target_identifier:
+    name: Preferred target identifier
+    description: Identity used to match the selected target; Apple TV stability is verified, Android TV remains provisional until pairing.
+  target_address:
+    name: Last known address
+    description: Informational network address captured when the target was selected.

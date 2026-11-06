@@ -26,7 +26,7 @@ jobs:
       - name: Install runtime and validation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r universal_remote_relay/requirements.txt -r universal_remote_relay_test/requirements.txt PyYAML
+          python -m pip install -r universal_remote_relay/requirements.txt -r universal_remote_relay_test/requirements.txt PyYAML ruff==0.17.4
 
       - name: Validate YAML files
         run: |
@@ -38,6 +38,7 @@ jobs:
               "repository.yaml",
               "universal_remote_relay/config.yaml",
               "universal_remote_relay_test/config.yaml",
+              "universal_remote_relay_test/translations/en.yaml",
           ):
               with Path(filename).open(encoding="utf-8") as stream:
                   document = yaml.safe_load(stream)
@@ -54,11 +55,16 @@ jobs:
           version = experimental.get("version")
           for filename in (
               "universal_remote_relay_test/Dockerfile",
-              "universal_remote_relay_test/app/safe_scan.py",
+              "universal_remote_relay_test/app/service.py",
               "universal_remote_relay_test/run.sh",
           ):
               if version not in Path(filename).read_text(encoding="utf-8"):
                   raise SystemExit(f"{filename} does not match version {version}")
+
+          if experimental.get("ingress") is not True or experimental.get("ingress_port") != 0:
+              raise SystemExit("experimental selector must use private dynamic ingress")
+          if "ports" in experimental or "webui" in experimental:
+              raise SystemExit("experimental selector must not publish a host port")
 
           for filename in (
               "universal_remote_relay/build.yaml",
@@ -72,6 +78,11 @@ jobs:
         run: |
           (cd universal_remote_relay && python -W error -m unittest discover -s tests -v)
           (cd universal_remote_relay_test && python -W error -m unittest discover -s tests -v)
+
+      - name: Lint experimental service
+        run: |
+          python -m ruff check universal_remote_relay_test/app universal_remote_relay_test/tests
+          python -m ruff format --check universal_remote_relay_test/app universal_remote_relay_test/tests
 
       - name: Compile service
         run: |

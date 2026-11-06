@@ -1,108 +1,103 @@
-"""Opt-in one-shot Apple TV discovery. No pairing, listener, or remote commands."""
-import asyncio
+"""Opt-in one-shot discovery with stable device matching."""
+
+from __future__ import annotations
+
 import json
 import logging
-import time
+from dataclasses import dataclass
 from pathlib import Path
+
+from discovery import APPLE_TV, DiscoveredDevice, discover_devices, normalize_platform
 
 LOG = logging.getLogger("universal_remote_relay")
 OPTIONS = Path("/data/options.json")
 
 
-def load_options(path=OPTIONS):
+@dataclass(frozen=True, slots=True)
+class Settings:
+    enable_single_scan: bool = False
+    log_level: str = "info"
+    target_platform: str = APPLE_TV
+    target_name: str = ""
+    target_identifier: str = ""
+    target_address: str = ""
+
+
+def load_options(path: Path = OPTIONS) -> Settings:
     raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if not isinstance(raw, dict):
-        raise ValueError("Options must be an object")
+        raise TypeError("Options must be an object")
     enabled = raw.get("enable_single_scan", False)
     if type(enabled) is not bool:
-        raise ValueError("enable_single_scan must be a boolean")
+        raise TypeError("enable_single_scan must be a boolean")
     level = raw.get("log_level", "info")
     if level not in ("debug", "info", "warning", "error"):
         raise ValueError("Unsupported log_level")
-    target_name = raw.get("target_name", "")
-    if not isinstance(target_name, str):
-        raise ValueError("target_name must be a string")
-    target_name = target_name.strip()
-    target_identifier = raw.get("target_identifier", "")
-    if not isinstance(target_identifier, str):
-        raise ValueError("target_identifier must be a string")
-    target_identifier = target_identifier.strip()
-    return enabled, level, target_name, target_identifier
+    platform = normalize_platform(raw.get("target_platform", APPLE_TV))
+    strings: dict[str, str] = {}
+    for key in ("target_name", "target_identifier", "target_address"):
+        value = raw.get(key, "")
+        if not isinstance(value, str):
+            raise TypeError(f"{key} must be a string")
+        strings[key] = value.strip()
+    return Settings(
+        enable_single_scan=enabled,
+        log_level=level,
+        target_platform=platform,
+        target_name=strings["target_name"],
+        target_identifier=strings["target_identifier"],
+        target_address=strings["target_address"],
+    )
 
 
-def matches_target(device, target_name):
-    """Return whether a discovered device matches an optional exact name."""
-    return not target_name or device.name == target_name
+def matches_target(device: DiscoveredDevice, settings: Settings) -> bool:
+    if device.platform != settings.target_platform:
+        return False
+    if settings.target_identifier:
+        return settings.target_identifier in (
+            device.identifier,
+            *device.all_identifiers,
+        )
+    if settings.target_name:
+        return device.name == settings.target_name
+    if settings.target_address:
+        return device.address == settings.target_address
+    return True
 
 
-def identifiers_for(device):
-    """Return sorted non-empty discovery identifiers without credentials."""
-    return sorted(str(identifier) for identifier in device.all_identifiers if identifier)
-
-
-async def scan_once(target_name="", target_identifier="", scan_func=None):
-    if scan_func is None:
-        import pyatv
-
-        scan_func = pyatv.scan
-
-    if target_identifier and target_name:
-        LOG.info("Stable identifier configured; target_name is ignored")
+async def scan_once(settings: Settings, discover_func=discover_devices) -> bool:
+    if settings.target_identifier and settings.target_name:
+        LOG.info("Stable identifier configured; target_name is informational only")
     LOG.info(
-        "Starting one Apple TV discovery scan; target_name=%r identifier_filter=%s",
-        target_name or None,
-        "set" if target_identifier else "unset",
+        "Starting one %s discovery scan; identifier_filter=%s",
+        settings.target_platform,
+        "set" if settings.target_identifier else "unset",
     )
     try:
-        scan_options = {"timeout": 10}
-        if target_identifier:
-            scan_options["identifier"] = target_identifier
-        devices = await asyncio.wait_for(
-            scan_func(asyncio.get_running_loop(), **scan_options),
-            timeout=20,
-        )
-    except asyncio.TimeoutError:
-        LOG.error("Apple TV discovery timed out")
+        devices = await discover_func(settings.target_platform, timeout=10)
+    except TimeoutError:
+        LOG.error("Device discovery timed out")
         LOG.info("Discovery ended; no further scans scheduled")
         return False
     except Exception:
-        LOG.exception("Apple TV discovery failed")
+        LOG.exception("Device discovery failed")
         LOG.info("Discovery ended; no further scans scheduled")
         return False
 
-    LOG.info("Discovery completed: %d device(s)", len(devices))
-    matches = devices if target_identifier else [
-        device for device in devices if matches_target(device, target_name)
-    ]
-    if target_identifier and not matches:
-        LOG.warning("No device matched the configured stable identifier")
-    elif target_name and not matches:
-        LOG.warning("No device matched target name %r", target_name)
+    matches = [device for device in devices if matches_target(device, settings)]
+    LOG.info(
+        "Discovery completed: %d device(s), %d match(es)", len(devices), len(matches)
+    )
+    if not matches:
+        LOG.warning("No device matched the saved target")
     for device in matches:
         LOG.info(
-            "Apple TV: name=%r address=%s identifier=%r all_identifiers=%s",
+            "%s: name=%r address=%s identifier=%r all_identifiers=%s",
+            "Apple TV" if device.platform == APPLE_TV else "Android TV",
             device.name,
             device.address,
             device.identifier,
-            identifiers_for(device),
+            list(device.all_identifiers),
         )
     LOG.info("Discovery ended; no further scans scheduled")
     return bool(matches)
-
-
-def main():
-    enabled, level, target_name, target_identifier = load_options()
-    logging.basicConfig(level=getattr(logging, level.upper()), format="%(levelname)s %(message)s")
-    LOG.info("Universal Remote Relay v0.1.7; single scan enabled=%s", enabled)
-    if enabled:
-        if not asyncio.run(scan_once(target_name, target_identifier)):
-            LOG.error("The requested one-shot discovery did not find its target")
-            raise SystemExit(1)
-    else:
-        LOG.info("Safe idle mode; discovery disabled")
-    while True:
-        time.sleep(3600)
-
-
-if __name__ == "__main__":
-    main()

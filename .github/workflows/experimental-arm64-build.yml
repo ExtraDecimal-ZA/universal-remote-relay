@@ -29,8 +29,11 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Validate experimental Python and tests
         run: |
-          python3 -m py_compile universal_remote_relay_test/app/safe_scan.py
-          python3 -m unittest discover -s universal_remote_relay_test/tests -p 'test_safe_scan.py' -v
+          python3 -m pip install -r universal_remote_relay_test/requirements.txt ruff==0.17.4
+          python3 -m compileall universal_remote_relay_test/app
+          python3 -m unittest discover -s universal_remote_relay_test/tests -v
+          python3 -m ruff check universal_remote_relay_test/app universal_remote_relay_test/tests
+          python3 -m ruff format --check universal_remote_relay_test/app universal_remote_relay_test/tests
           bash -n universal_remote_relay_test/run.sh
       - name: Read image metadata
         id: image
