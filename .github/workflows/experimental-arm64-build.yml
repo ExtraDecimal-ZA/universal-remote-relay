@@ -1,4 +1,4 @@
-name: Experimental ARM64 add-on build
+name: Experimental ARM64 image
 on:
   push:
     branches: [main]
@@ -12,9 +12,17 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+
+concurrency:
+  group: experimental-arm64-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   arm64-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -24,12 +32,41 @@ jobs:
           python3 -m py_compile universal_remote_relay_test/app/safe_scan.py
           python3 -m unittest discover -s universal_remote_relay_test/tests -p 'test_safe_scan.py' -v
           bash -n universal_remote_relay_test/run.sh
-      - name: Build experimental ARM64 add-on image
+      - name: Read image metadata
+        id: image
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version: "\(.*\)"/\1/p' universal_remote_relay_test/config.yaml)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/universal-remote-relay-test" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish experimental ARM64 image
         uses: docker/build-push-action@v6
         with:
           context: ./universal_remote_relay_test
           platforms: linux/arm64
-          push: false
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             BUILD_ARCH=aarch64
-            BUILD_VERSION=0.1.6
+            BUILD_VERSION=${{ steps.image.outputs.version }}
+
+      - name: Verify anonymous ARM64 download
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          docker logout ghcr.io
+          inspection="$(docker buildx imagetools inspect '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}')"
+          echo "$inspection"
+          grep -q 'linux/arm64' <<< "$inspection"

@@ -93,7 +93,7 @@ async def scan_once(target_name="", target_identifier="", scan_func=None):
 def main():
     enabled, level, target_name, target_identifier = load_options()
     logging.basicConfig(level=getattr(logging, level.upper()), format="%(levelname)s %(message)s")
-    LOG.info("Universal Remote Relay v0.1.6; single scan enabled=%s", enabled)
+    LOG.info("Universal Remote Relay v0.1.7; single scan enabled=%s", enabled)
     if enabled:
         if not asyncio.run(scan_once(target_name, target_identifier)):
             LOG.error("The requested one-shot discovery did not find its target")

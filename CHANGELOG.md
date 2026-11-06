@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.7 (Experimental) — 2026-11-06
+
+- Changed Home Assistant installation from a local Pi build to a prebuilt,
+  versioned ARM64 image hosted on GitHub Container Registry.
+- Added an anonymous image-download and ARM64-manifest release gate so an image
+  is not offered to the Pi until Home Assistant can actually retrieve it.
+- Derived the published image tag from `config.yaml` to prevent version drift.
+- Added GitHub build caching and concurrency control for faster clean releases.
+- Removed obsolete `build.yaml` files now that Dockerfiles define their base
+  images directly.
+- Recorded that the v0.1.6 update stalled at 0% without claiming it installed.
+
 ## 0.1.6 (Experimental) — 2026-11-06
 
 - Made stable identifiers override device names, so later name changes do not

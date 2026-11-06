@@ -37,14 +37,35 @@ jobs:
           for filename in (
               "repository.yaml",
               "universal_remote_relay/config.yaml",
-              "universal_remote_relay/build.yaml",
               "universal_remote_relay_test/config.yaml",
-              "universal_remote_relay_test/build.yaml",
           ):
               with Path(filename).open(encoding="utf-8") as stream:
                   document = yaml.safe_load(stream)
               if not isinstance(document, dict):
                   raise SystemExit(f"{filename} must contain a YAML mapping")
+
+          experimental = yaml.safe_load(
+              Path("universal_remote_relay_test/config.yaml").read_text(encoding="utf-8")
+          )
+          expected_image = "ghcr.io/extradecimal-za/universal-remote-relay-test"
+          if experimental.get("image") != expected_image:
+              raise SystemExit(f"experimental image must be {expected_image}")
+
+          version = experimental.get("version")
+          for filename in (
+              "universal_remote_relay_test/Dockerfile",
+              "universal_remote_relay_test/app/safe_scan.py",
+              "universal_remote_relay_test/run.sh",
+          ):
+              if version not in Path(filename).read_text(encoding="utf-8"):
+                  raise SystemExit(f"{filename} does not match version {version}")
+
+          for filename in (
+              "universal_remote_relay/build.yaml",
+              "universal_remote_relay_test/build.yaml",
+          ):
+              if Path(filename).exists():
+                  raise SystemExit(f"obsolete file must be removed: {filename}")
           PY
 
       - name: Run unit tests

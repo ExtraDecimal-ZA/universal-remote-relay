@@ -20,5 +20,5 @@ host architecture as `aarch64`. Current Home Assistant releases no longer
 support the older 32-bit `armv7` platform.
 
 Apple TV discovery belongs to the separately installed experimental add-on.
-The next development step is the controlled experimental v0.1.6 test described
+The next development step is the controlled experimental v0.1.7 test described
 in the repository README.

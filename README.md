@@ -58,7 +58,6 @@ protocol feasibility testing.
 
 - `repository.yaml`: add-on repository metadata
 - `universal_remote_relay/config.yaml`: diagnostic-only add-on manifest
-- `universal_remote_relay/build.yaml`: aarch64 base-image mapping
 - `universal_remote_relay/Dockerfile`: minimal image, no pip installation
 - `universal_remote_relay/run.sh`: diagnostic startup and idle process
 
@@ -66,19 +65,28 @@ protocol feasibility testing.
 
 Verified on 2026-11-06:
 
-- Stable v0.1.3 and the last verified experimental installation (v0.1.4) were
-  installed in Home Assistant and left stopped. Experimental v0.1.6 is a new
-  candidate and must not be treated as installed until Home Assistant confirms it.
+- Stable v0.1.3 and experimental v0.1.4 remain the last confirmed installations.
+  The v0.1.6 update stalled at `Installing (0%)` while Home Assistant and the
+  Supervisor remained reachable; it was not accepted as installed.
 - Start on boot, Watchdog, and Auto update are disabled for the experimental
   add-on, and `enable_single_scan` remains `false`.
-- GitHub Actions successfully validates the project and builds the experimental
-  ARM64 container image.
+- GitHub Actions validates the project and builds the experimental ARM64 image.
+  Starting with v0.1.7, it must also publish the image and prove an anonymous
+  ARM64 download before the Pi installation is allowed.
 - Six retained prototype tests and nine experimental safe-scan tests pass.
 
-Still pending: install/update the experimental add-on to v0.1.6, confirm the
-stable Apple TV identifier is configured, perform a controlled manual startup,
-and observe Raspberry Pi CPU/RAM and stability. Google TV receiver discovery
-and pairing remain unimplemented and unverified.
+Still pending: complete the v0.1.7 prebuilt-image release gate, then install it
+without a local Pi build, confirm the stable Apple TV identifier, perform a
+controlled manual startup, and observe Raspberry Pi CPU/RAM and stability.
+Google TV receiver discovery and pairing remain unimplemented and unverified.
+
+## Pi installation policy
+
+The Raspberry Pi is the final hardware acceptance test, not a container build
+machine. A new experimental version must not be installed until its checks,
+versioned ARM64 image publication, anonymous pull test, documentation, and
+rollback instructions are complete. The add-on remains manual-start and
+discovery remains opt-in for the first hardware run.
 
 ## License
 
