@@ -75,6 +75,10 @@ class SafeScanOptionsTest(unittest.TestCase):
         device = DiscoveredDevice("android_tv", "TV", "192.0.2.5", "id")
         self.assertFalse(matches_target(device, Settings(target_identifier="id")))
 
+    def test_empty_target_matches_nothing(self):
+        device = DiscoveredDevice(APPLE_TV, "TV", "192.0.2.5", "id")
+        self.assertFalse(matches_target(device, Settings()))
+
     def test_scan_logs_only_selected_target(self):
         devices = [
             DiscoveredDevice(APPLE_TV, "Other", "192.0.2.1", "other"),

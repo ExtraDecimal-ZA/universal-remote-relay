@@ -108,7 +108,7 @@ function renderTargets(devices) {
     radio.type = 'radio';
     radio.name = 'target';
     radio.value = device.identifier;
-    radio.addEventListener('change', () => saveTarget(device, radio));
+    radio.addEventListener('change', () => saveTarget(device, radio).catch(showError));
     const text = document.createElement('span');
     const name = document.createElement('strong');
     name.textContent = device.name;
@@ -142,19 +142,21 @@ async function saveTarget(device, radio) {
   for (const item of targets.querySelectorAll('input')) item.disabled = true;
   status.className = 'muted';
   status.textContent = `Saving ${device.name}…`;
-  const response = await fetch('api/select', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(device)
-  });
-  const body = await response.json();
-  if (!response.ok) {
+  try {
+    const response = await fetch('api/select', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(device)
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Could not save the selected target.');
+    showSaved(body.options);
+    status.className = 'ok';
+    status.textContent = 'Target saved. Restart the add-on when you are ready to apply it.';
+  } catch (error) {
     radio.checked = false;
     for (const item of targets.querySelectorAll('input')) item.disabled = false;
-    throw new Error(body.error || 'Could not save the selected target.');
+    throw error;
   }
-  showSaved(body.options);
-  status.className = 'ok';
-  status.textContent = 'Target saved. Restart the add-on when you are ready to apply it.';
 }
 
 platform.addEventListener('change', () => scan().catch(showError));

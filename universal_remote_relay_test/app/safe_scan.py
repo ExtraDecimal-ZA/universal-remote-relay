@@ -62,7 +62,7 @@ def matches_target(device: DiscoveredDevice, settings: Settings) -> bool:
         return device.name == settings.target_name
     if settings.target_address:
         return device.address == settings.target_address
-    return True
+    return False
 
 
 async def scan_once(settings: Settings, discover_func=discover_devices) -> bool:

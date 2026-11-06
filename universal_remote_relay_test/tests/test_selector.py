@@ -28,6 +28,11 @@ class SelectorTest(unittest.TestCase):
         self.assertIn("name = 'target'", INDEX_HTML)
         self.assertIn("saveTarget(device, radio)", INDEX_HTML)
 
+    def test_save_failure_is_reported_and_controls_are_restored(self):
+        self.assertIn("saveTarget(device, radio).catch(showError)", INDEX_HTML)
+        self.assertIn("radio.checked = false", INDEX_HTML)
+        self.assertIn("item.disabled = false", INDEX_HTML)
+
     def test_selection_requires_complete_device_identity(self):
         with self.assertRaises(ValueError):
             Selection.from_payload({"platform": "apple_tv", "name": "TV"})

@@ -34,6 +34,19 @@ jobs:
           python3 -m unittest discover -s universal_remote_relay_test/tests -v
           python3 -m ruff check universal_remote_relay_test/app universal_remote_relay_test/tests
           python3 -m ruff format --check universal_remote_relay_test/app universal_remote_relay_test/tests
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          source = Path("universal_remote_relay_test/app/selector.py").read_text(
+              encoding="utf-8"
+          )
+          match = re.search(r"<script>\n(.*?)\n</script>", source, re.DOTALL)
+          if match is None:
+              raise SystemExit("selector script was not found")
+          Path("/tmp/selector.js").write_text(match.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/selector.js
           bash -n universal_remote_relay_test/run.sh
       - name: Read image metadata
         id: image
@@ -43,6 +56,16 @@ jobs:
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/universal-remote-relay-test" >> "$GITHUB_OUTPUT"
+
+      - name: Require a new immutable version tag
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          image='${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}'
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing image tag: $image"
+            exit 1
+          fi
 
       - name: Build experimental ARM64 image locally
         shell: bash

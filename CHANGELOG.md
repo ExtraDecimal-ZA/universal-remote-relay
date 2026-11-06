@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 (Experimental) — 2026-11-06
+
+- Made an empty target match nothing, preventing an unconfigured validation
+  scan from reporting unrelated devices as successful matches.
+- Restored selector controls and displayed an error when saving a target fails.
+- Marked the add-on as experimental in Home Assistant metadata.
+- Prevented the image workflow from overwriting an existing version tag.
+
 ## 0.2.1 (Experimental) — 2026-11-06
 
 - Fixed the startup crash caused by calling a Bashio ingress helper that is not

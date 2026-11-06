@@ -1,4 +1,4 @@
-# Universal Remote Relay (Experimental) v0.2.1
+# Universal Remote Relay (Experimental) v0.2.2
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.

@@ -63,8 +63,16 @@ jobs:
 
           if experimental.get("ingress") is not True or experimental.get("ingress_port") != 0:
               raise SystemExit("experimental selector must use private dynamic ingress")
+          if experimental.get("stage") != "experimental":
+              raise SystemExit("experimental add-on must declare stage: experimental")
           if "ports" in experimental or "webui" in experimental:
               raise SystemExit("experimental selector must not publish a host port")
+
+          release_workflow = Path(
+              ".github/workflows/experimental-arm64-build.yml"
+          ).read_text(encoding="utf-8")
+          if "docker manifest inspect" not in release_workflow:
+              raise SystemExit("release workflow must reject existing version tags")
 
           launcher = Path("universal_remote_relay_test/run.sh").read_text(
               encoding="utf-8"

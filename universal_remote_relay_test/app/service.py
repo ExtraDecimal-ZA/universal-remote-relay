@@ -11,7 +11,7 @@ from safe_scan import load_options, scan_once
 from selector import create_app
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 
 def validate_ingress_port(value: object, *, allow_zero: bool = False) -> int:
