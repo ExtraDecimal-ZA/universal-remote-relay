@@ -64,9 +64,19 @@ protocol feasibility testing.
 
 ## Verification status
 
-GitHub file updates alone do not verify a Docker build or device behavior.
-A successful Home Assistant add-on build, install, startup, and sustained
-Raspberry Pi stability test are still required.
+Verified on 2026-11-06:
+
+- Stable v0.1.3 and separate experimental v0.1.4 are installed in Home
+  Assistant and remain stopped.
+- Start on boot, Watchdog, and Auto update are disabled for the experimental
+  add-on, and `enable_single_scan` remains `false`.
+- GitHub Actions successfully validates the project and builds the experimental
+  ARM64 container image.
+- Six retained prototype tests and three experimental safe-scan tests pass.
+
+Still pending: a controlled manual startup, Raspberry Pi CPU/RAM and stability
+observation, and then an explicitly enabled one-shot Apple TV scan. Google TV
+receiver discovery and pairing remain unimplemented and unverified.
 
 ## License
 
