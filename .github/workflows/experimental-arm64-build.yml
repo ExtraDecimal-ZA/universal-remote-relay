@@ -104,6 +104,9 @@ jobs:
         shell: bash
         run: |
           docker logout ghcr.io
-          inspection="$(docker buildx imagetools inspect '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}')"
-          echo "$inspection"
-          grep -q 'linux/arm64' <<< "$inspection"
+          image='${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}'
+          docker image rm "$image"
+          docker pull --platform linux/arm64 "$image"
+          platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+          echo "Downloaded platform: $platform"
+          [[ "$platform" == 'linux/arm64' ]]
