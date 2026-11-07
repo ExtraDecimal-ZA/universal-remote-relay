@@ -171,7 +171,7 @@ async function saveTarget(device, radio) {
     if (!response.ok) throw new Error(body.error || 'Could not save the selected target.');
     showSaved(body.options);
     status.className = 'ok';
-    status.textContent = 'Target saved. Restart the add-on when you are ready to apply it.';
+    status.textContent = 'Target saved. The Configuration tab now contains this device information.';
   } catch (error) {
     radio.checked = false;
     for (const item of targets.querySelectorAll('input')) item.disabled = false;
@@ -260,6 +260,7 @@ def options_with_selection(
     options: dict[str, object], selection: Selection
 ) -> dict[str, object]:
     updated = dict(options)
+    updated.pop("enable_single_scan", None)
     updated.update(
         target_platform=selection.platform,
         target_name=selection.name,

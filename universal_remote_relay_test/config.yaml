@@ -1,5 +1,5 @@
 name: Universal Remote Relay (Experimental)
-version: "0.3.0"
+version: "0.3.1"
 slug: universal_remote_relay_test
 description: Private target selector with a bounded phone-remote pairing probe
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay
@@ -17,14 +17,12 @@ arch:
   - aarch64
 options:
   log_level: info
-  enable_single_scan: false
   target_platform: apple_tv
   target_name: ""
   target_identifier: ""
   target_address: ""
 schema:
   log_level: list(debug|info|warning|error)
-  enable_single_scan: bool
   target_platform: list(apple_tv|android_tv)
   target_name: str
   target_identifier: str

@@ -51,6 +51,7 @@ class SelectorTest(unittest.TestCase):
         self.assertEqual(updated["log_level"], "info")
         self.assertEqual(updated["target_platform"], "android_tv")
         self.assertEqual(updated["target_identifier"], "new-id")
+        self.assertNotIn("enable_single_scan", updated)
         self.assertNotIn("old-id", updated.values())
 
     def test_public_config_excludes_unrelated_options(self):
@@ -72,7 +73,7 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.options_path = Path(self.directory.name) / "options.json"
         self.options_path.write_text(
-            json.dumps({"log_level": "info", "enable_single_scan": False}),
+            json.dumps({"log_level": "info"}),
             encoding="utf-8",
         )
         self.saved = None
