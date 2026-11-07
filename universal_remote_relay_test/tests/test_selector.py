@@ -95,22 +95,48 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
 
         class PairingProbe:
             def __init__(probe_self):
-                probe_self.active = False
+                probe_self.pairing_active = False
 
             def status(probe_self):
                 return {
-                    "state": "advertising" if probe_self.active else "idle",
-                    "message": "running" if probe_self.active else "stopped",
-                    "active": probe_self.active,
+                    "state": "pairing_available"
+                    if probe_self.pairing_active
+                    else "receiver_ready",
+                    "message": "running" if probe_self.pairing_active else "ready",
+                    "active": True,
+                    "pairing_active": probe_self.pairing_active,
                 }
 
-            async def start(probe_self):
-                probe_self.active = True
+            async def open_pairing_window(probe_self):
+                probe_self.pairing_active = True
 
-            async def stop(probe_self):
-                probe_self.active = False
+            async def close_pairing_window(probe_self):
+                probe_self.pairing_active = False
+
+        class AppleTVController:
+            def __init__(controller_self):
+                controller_self.state = "not_paired"
+
+            def status(controller_self):
+                return {
+                    "state": controller_self.state,
+                    "message": controller_self.state,
+                    "paired": controller_self.state == "paired",
+                }
+
+            async def start_pairing(controller_self):
+                controller_self.state = "waiting_for_pin"
+
+            async def finish_pairing(controller_self, pin):
+                if pin != "1234":
+                    raise ValueError("bad pin")
+                controller_self.state = "paired"
+
+            async def cancel_pairing(controller_self):
+                controller_self.state = "not_paired"
 
         self.pairing_probe = PairingProbe()
+        self.apple_tv = AppleTVController()
 
         app = create_app(
             options_path=self.options_path,
@@ -118,6 +144,7 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
             discover_func=discover,
             save_func=save,
             pairing_probe=self.pairing_probe,
+            apple_tv_controller=self.apple_tv,
         )
         self.client = TestClient(TestServer(app))
         await self.client.start_server()
@@ -172,15 +199,35 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_pairing_probe_is_started_and_stopped_through_private_api(self):
         status = await self.client.get("/api/pairing/status")
-        self.assertFalse((await status.json())["active"])
+        self.assertFalse((await status.json())["pairing_active"])
 
         started = await self.client.post("/api/pairing/start")
         self.assertEqual(started.status, 200)
-        self.assertTrue((await started.json())["active"])
+        self.assertTrue((await started.json())["pairing_active"])
 
         stopped = await self.client.post("/api/pairing/stop")
         self.assertEqual(stopped.status, 200)
-        self.assertFalse((await stopped.json())["active"])
+        self.assertFalse((await stopped.json())["pairing_active"])
+
+    async def test_apple_tv_pairing_is_completed_through_private_api(self):
+        started = await self.client.post("/api/apple-tv/pair/start")
+        self.assertEqual(started.status, 200)
+        self.assertEqual((await started.json())["state"], "waiting_for_pin")
+
+        finished = await self.client.post(
+            "/api/apple-tv/pair/finish", json={"pin": "1234"}
+        )
+        self.assertEqual(finished.status, 200)
+        self.assertTrue((await finished.json())["paired"])
+
+    async def test_apple_tv_pairing_rejects_invalid_pin(self):
+        await self.client.post("/api/apple-tv/pair/start")
+
+        finished = await self.client.post(
+            "/api/apple-tv/pair/finish", json={"pin": "12"}
+        )
+
+        self.assertEqual(finished.status, 400)
 
     async def test_supervisor_save_uses_self_options_endpoint(self):
         captured = {}

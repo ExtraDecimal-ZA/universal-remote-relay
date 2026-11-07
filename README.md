@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.3.1
+## Experimental release: v0.4.0
 
-v0.3.1 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.0 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -28,28 +28,33 @@ The selector uses Home Assistant Ingress with a Supervisor-assigned dynamic
 port. It does not publish a host port, require a separate login, or return the
 Supervisor token to the browser.
 
-It also adds a manually started, ten-minute phone-remote pairing probe. While
-the probe is active, the add-on advertises **Universal Remote Relay Test** on
-the local network and listens on the Android TV Remote v2 pairing and control
-ports. A six-character pairing code is shown only inside the authenticated Web
-UI. After pairing, the probe can capture a navigation command for validation,
-but it does not forward that command to the Apple TV. The advertisement and
-listeners stop automatically or when **Stop test** is selected.
+The trusted phone receiver now remains advertised while the add-on is running,
+so a paired phone can reconnect after sleeping. TCP 6467 is opened only during
+a ten-minute new-phone pairing window; TCP 6466 remains available for a trusted
+phone's command connection. The phone certificate and relay identity persist
+under protected add-on data.
+
+The Web UI also pairs the relay once with the selected Apple TV using the
+on-screen four-digit Companion PIN. `pyatv` credentials persist under `/data`.
+Allow-listed navigation and playback commands are forwarded using the selected
+Apple TV's stable identifier; its display name may change without breaking the
+selection.
 
 ## Current capability boundary
 
 - Apple TV discovery through `pyatv`: implemented and physically verified.
 - Android TV Remote v2 discovery: implemented.
-- Phone pairing and command capture: implemented and locally simulated; the
-  Samsung S24 Ultra physical test is still required.
-- Apple TV pairing and command dispatch: not implemented.
-- Apple TV command forwarding: deliberately disabled during the pairing test.
+- Initial Samsung S24 Ultra phone pairing: physically verified.
+- Persistent phone reconnect after sleep: implemented and simulated; physical
+  verification on the Samsung phone is still required.
+- Apple TV Companion pairing and allow-listed command forwarding: implemented
+  and simulated; physical Apple TV verification is still required.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.3.1 pairing probe stays experimental until discovery, pairing, reconnect,
-command capture, expiry, resource-use, and rollback checks pass on the Pi and
-Samsung phone.
+v0.4.0 stays experimental until persistent reconnect, Apple TV pairing,
+forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
+and Apple TV.
 
 ## Repository installation
 
@@ -62,21 +67,25 @@ workflows pass and the versioned ARM64 image is anonymously downloadable.
 
 Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
-## First phone pairing test
+## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay (Experimental) v0.3.1**.
+1. Install and start **Universal Remote Relay (Experimental) v0.4.0**.
 2. Open the private Web UI.
-3. Select **Start 10-minute pairing test**.
-4. On the Samsung S24 Ultra, open the Google TV remote and select
+3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
+   and enter the four-digit PIN shown on the television.
+4. Select **Open 10-minute pairing window** only if the Samsung phone is not
+   already paired.
+5. On the Samsung S24 Ultra, open the Google TV remote and select
    **Universal Remote Relay Test**.
-5. Enter the six-character code shown in the add-on Web UI.
-6. Press one D-pad button and confirm that the Web UI reports the command as
-   captured without forwarding it.
-7. Select **Stop test**. The local advertisement and listeners should close.
+6. Enter the six-character code if the phone requests new pairing.
+7. Press one D-pad button and confirm the Apple TV responds.
+8. Let the phone sleep, wake it, reopen the remote, and confirm it reconnects
+   without another pairing code.
 
-The phone must be on the same trusted local network. The probe uses local TCP
-ports 6467 for pairing and 6466 for the command session only while the test is
-active. No router forwarding or Internet exposure is required.
+The devices must be on the same trusted local network. TCP 6466 stays local to
+the LAN for trusted phone reconnects. TCP 6467 exists only during the bounded
+new-phone pairing window. No router forwarding or Internet exposure is
+required.
 
 ## Release gate
 
