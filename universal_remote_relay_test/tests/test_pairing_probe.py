@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import sys
 import tempfile
@@ -107,7 +108,42 @@ class PairingRoundTripTest(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def test_phone_pairs_and_navigation_command_is_captured_without_forwarding(self):
+    def _run_remote_command(self, key_code, expected):
+        server_socket, client_socket = socket.socketpair()
+        remote_server = threading.Thread(
+            target=self.probe._run_remote_session,
+            args=(server_socket, None),
+            daemon=True,
+        )
+        remote_server.start()
+        connection = _client_connection(
+            client_socket, self.client_cert, self.client_key
+        )
+        try:
+            messages = []
+            for _ in range(3):
+                message = RemoteMessage()
+                message.ParseFromString(read_delimited(connection))
+                messages.append(message)
+            self.assertTrue(messages[0].HasField("remote_configure"))
+            self.assertTrue(messages[1].HasField("remote_set_active"))
+            self.assertTrue(messages[2].HasField("remote_start"))
+
+            key = RemoteMessage()
+            key.remote_key_inject.key_code = key_code
+            key.remote_key_inject.direction = RemoteDirection.SHORT
+            write_delimited(connection, key.SerializeToString())
+            deadline = time.monotonic() + 2
+            while self.probe.status()["last_command"] != expected:
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+        finally:
+            connection.close()
+        remote_server.join(timeout=5)
+        self.assertFalse(remote_server.is_alive())
+
+    def test_phone_pairs_once_and_reconnects_with_saved_trust(self):
+        self.probe._pairing_enabled = True
         server_socket, client_socket = socket.socketpair()
         server = threading.Thread(
             target=self.probe._run_pairing_session,
@@ -169,40 +205,71 @@ class PairingRoundTripTest(unittest.TestCase):
         self.assertTrue(self.probe.client_cert_path.exists())
 
         self.probe._active = True
-        server_socket, client_socket = socket.socketpair()
-        remote_server = threading.Thread(
-            target=self.probe._run_remote_session,
-            args=(server_socket, None),
-            daemon=True,
+        self._run_remote_command(
+            RemoteKeyCode.KEYCODE_DPAD_UP,
+            "DPAD_UP (SHORT)",
         )
-        remote_server.start()
-        connection = _client_connection(
-            client_socket, self.client_cert, self.client_key
+        self._run_remote_command(
+            RemoteKeyCode.KEYCODE_DPAD_DOWN,
+            "DPAD_DOWN (SHORT)",
         )
-        try:
-            messages = []
-            for _ in range(3):
-                message = RemoteMessage()
-                message.ParseFromString(read_delimited(connection))
-                messages.append(message)
-            self.assertTrue(messages[0].HasField("remote_configure"))
-            self.assertTrue(messages[1].HasField("remote_set_active"))
-            self.assertTrue(messages[2].HasField("remote_start"))
+        self.probe._active = False
 
-            key = RemoteMessage()
-            key.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_DPAD_UP
-            key.remote_key_inject.direction = RemoteDirection.SHORT
-            write_delimited(connection, key.SerializeToString())
-            deadline = time.monotonic() + 2
-            while not self.probe.status()["last_command"]:
-                self.assertLess(time.monotonic(), deadline)
-                time.sleep(0.01)
-            self.assertEqual(self.probe.status()["last_command"], "DPAD_UP (SHORT)")
-        finally:
-            self.probe._active = False
-            connection.close()
-        remote_server.join(timeout=5)
-        self.assertFalse(remote_server.is_alive())
+
+class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
+    async def test_closing_pairing_window_keeps_receiver_available(self):
+        probe = PairingProbe(pairing_port=0)
+        probe._active = True
+
+        await probe.open_pairing_window(duration=60)
+        await probe.close_pairing_window()
+
+        status = probe.status()
+        self.assertTrue(status["active"])
+        self.assertFalse(status["pairing_active"])
+        self.assertEqual(status["seconds_remaining"], 0)
+
+    async def test_short_key_is_forwarded_on_receiver_loop(self):
+        forwarded = []
+
+        async def send(key):
+            forwarded.append(key)
+            return "up"
+
+        probe = PairingProbe(command_handler=send)
+        probe._loop = asyncio.get_running_loop()
+        message = RemoteMessage()
+        message.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_DPAD_UP
+        message.remote_key_inject.direction = RemoteDirection.SHORT
+
+        probe._handle_remote_message(message)
+        for _ in range(20):
+            if forwarded:
+                break
+            await asyncio.sleep(0.01)
+
+        self.assertEqual(forwarded, ["DPAD_UP"])
+        self.assertEqual(probe.status()["last_command"], "DPAD_UP (SHORT)")
+
+    async def test_text_input_is_captured_but_never_forwarded(self):
+        forwarded = []
+
+        async def send(key):
+            forwarded.append(key)
+            return "unused"
+
+        probe = PairingProbe(command_handler=send)
+        probe._loop = asyncio.get_running_loop()
+        message = RemoteMessage()
+        message.remote_ime_batch_edit.SetInParent()
+
+        probe._handle_remote_message(message)
+        await asyncio.sleep(0)
+
+        self.assertEqual(forwarded, [])
+        self.assertEqual(
+            probe.status()["last_command"], "TEXT_INPUT (content withheld)"
+        )
 
 
 if __name__ == "__main__":

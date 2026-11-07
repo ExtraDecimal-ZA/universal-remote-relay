@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 from aiohttp import ClientSession, ClientTimeout, web
+from apple_tv import AppleTVController
 from pairing_probe import PairingProbe
 from selector import create_app, read_options
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 LOG_LEVELS = {"debug", "info", "warning", "error"}
 
 
@@ -67,7 +69,9 @@ async def resolve_ingress_port() -> int:
 
 
 async def run() -> None:
-    options = read_options()
+    data_dir = Path(os.environ.get("DATA_PATH", "/data"))
+    options_path = data_dir / "options.json"
+    options = read_options(options_path)
     log_level = configured_log_level(options)
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
@@ -81,16 +85,33 @@ async def run() -> None:
     port = await resolve_ingress_port()
     LOG.info("No startup device scan is scheduled")
 
-    pairing_probe = PairingProbe()
-    runner = web.AppRunner(create_app(pairing_probe=pairing_probe), access_log=None)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    LOG.info("Private Home Assistant target selector is ready")
+    apple_tv = AppleTVController(
+        options_path=options_path,
+        data_dir=data_dir / "apple_tv",
+    )
+    await apple_tv.initialize()
+    pairing_probe = PairingProbe(
+        data_dir=data_dir / "pairing_probe",
+        command_handler=apple_tv.send_key,
+    )
+    runner = web.AppRunner(
+        create_app(
+            options_path=options_path,
+            pairing_probe=pairing_probe,
+            apple_tv_controller=apple_tv,
+        ),
+        access_log=None,
+    )
     try:
+        await pairing_probe.start()
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        LOG.info("Private Home Assistant target selector is ready")
         await asyncio.Event().wait()
     finally:
         await pairing_probe.stop()
+        await apple_tv.close()
         await runner.cleanup()
 
 

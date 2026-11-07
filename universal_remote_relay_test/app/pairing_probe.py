@@ -1,4 +1,4 @@
-"""Time-bounded Google TV phone-remote pairing and command-capture probe."""
+"""Persistent Google TV phone receiver with bounded new pairing."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import select
 import socket
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from androidtvremote2.remotemessage_pb2 import (
     RemoteKeyCode,
     RemoteMessage,
 )
+from apple_tv import AppleTVRelayError
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -35,13 +37,13 @@ LOG = logging.getLogger("universal_remote_relay")
 PAIRING_PORT = 6467
 REMOTE_PORT = 6466
 SERVICE_TYPE = "_androidtvremote2._tcp.local."
-DEFAULT_DURATION = 600
+DEFAULT_PAIRING_WINDOW = 600
 MAX_FRAME_SIZE = 1024 * 1024
 REMOTE_FEATURES = 0b11  # Ping and key injection only.
 
 
 class PairingProbeError(RuntimeError):
-    """Raised when the bounded pairing probe cannot be started or completed."""
+    """Raised when the phone receiver or bounded pairing window fails."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +57,7 @@ class ProbeState:
     paired: bool = False
     remote_connected: bool = False
     last_command: str = ""
-    expires_at: float = 0.0
+    pairing_expires_at: float = 0.0
 
 
 def _int_bytes(value: int) -> bytes:
@@ -231,7 +233,7 @@ def _local_ipv4_address() -> str:
 
 
 class PairingProbe:
-    """Advertise a short-lived receiver and capture paired phone key events."""
+    """Run a persistent trusted-phone receiver with bounded new pairing."""
 
     def __init__(
         self,
@@ -240,11 +242,13 @@ class PairingProbe:
         receiver_name: str = "Universal Remote Relay Test",
         pairing_port: int = PAIRING_PORT,
         remote_port: int = REMOTE_PORT,
+        command_handler: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.receiver_name = receiver_name
         self.pairing_port = pairing_port
         self.remote_port = remote_port
+        self.command_handler = command_handler
         self.cert_path = data_dir / "relay_cert.pem"
         self.key_path = data_dir / "relay_key.pem"
         self.client_cert_path = data_dir / "paired_phone_cert.pem"
@@ -254,20 +258,26 @@ class PairingProbe:
         self._trusted_fingerprints: set[str] = set()
         self._listeners: list[socket.socket] = []
         self._accept_tasks: list[asyncio.Task[None]] = []
+        self._pair_listener: socket.socket | None = None
+        self._pair_accept_task: asyncio.Task[None] | None = None
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._client_sockets: set[socket.socket] = set()
         self._client_socket_lock = threading.Lock()
-        self._expiry_task: asyncio.Task[None] | None = None
+        self._pairing_expiry_task: asyncio.Task[None] | None = None
         self._zeroconf: AsyncZeroconf | None = None
         self._service_info: ServiceInfo | None = None
         self._active = False
+        self._pairing_enabled = False
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def status(self) -> dict[str, object]:
         """Return authenticated-UI state without exposing certificates or keys."""
         with self._state_lock:
             state = self._state
         remaining = (
-            max(0, int(state.expires_at - time.monotonic())) if state.expires_at else 0
+            max(0, int(state.pairing_expires_at - time.monotonic()))
+            if state.pairing_expires_at
+            else 0
         )
         return {
             "state": state.state,
@@ -279,6 +289,7 @@ class PairingProbe:
             "last_command": state.last_command,
             "seconds_remaining": remaining,
             "active": self._active,
+            "pairing_active": self._pairing_enabled,
             "receiver_name": self.receiver_name,
         }
 
@@ -286,12 +297,10 @@ class PairingProbe:
         with self._state_lock:
             self._state = replace(self._state, **changes)
 
-    async def start(self, *, duration: int = DEFAULT_DURATION) -> None:
-        """Start local advertisement and TLS listeners for a bounded interval."""
+    async def start(self) -> None:
+        """Start the receiver for the lifetime of the add-on."""
         if self._active:
-            raise PairingProbeError("Pairing test is already running")
-        if not 60 <= duration <= 900:
-            raise ValueError("Pairing duration must be between 60 and 900 seconds")
+            raise PairingProbeError("Phone remote receiver is already running")
         await asyncio.to_thread(
             _generate_identity,
             self.cert_path,
@@ -300,13 +309,8 @@ class PairingProbe:
         )
         await asyncio.to_thread(self._load_trusted_phone)
 
-        pair_listener = self._create_listener(self.pairing_port)
-        try:
-            remote_listener = self._create_listener(self.remote_port)
-        except Exception:
-            pair_listener.close()
-            raise
-        self._listeners = [pair_listener, remote_listener]
+        remote_listener = self._create_listener(self.remote_port)
+        self._listeners = [remote_listener]
 
         try:
             address = _local_ipv4_address()
@@ -336,40 +340,99 @@ class PairingProbe:
             raise
 
         self._active = True
-        expires_at = time.monotonic() + duration
+        self._loop = asyncio.get_running_loop()
         already_paired = bool(self._trusted_fingerprints)
         self._update_state(
-            state="advertising",
+            state="receiver_ready",
             message=(
                 "Waiting for the paired phone remote to reconnect."
                 if already_paired
-                else "Waiting for the Google TV phone remote to connect."
+                else "Receiver ready. Open a pairing window to link a phone."
             ),
             pairing_code="",
             client_name="",
             paired=already_paired,
             remote_connected=False,
             last_command="",
-            expires_at=expires_at,
+            pairing_expires_at=0.0,
         )
-        loop = asyncio.get_running_loop()
         self._accept_tasks = [
-            loop.create_task(self._accept_loop(pair_listener, pairing=True)),
-            loop.create_task(self._accept_loop(remote_listener, pairing=False)),
+            self._loop.create_task(self._accept_loop(remote_listener, pairing=False)),
         ]
-        self._expiry_task = loop.create_task(self._expire_after(duration))
-        LOG.info(
-            "Bounded phone-remote pairing test started for %d seconds on the local network",
-            duration,
-        )
+        LOG.info("Persistent phone-remote receiver started on the local network")
 
-    async def stop(self, *, reason: str = "Pairing test is stopped.") -> None:
-        """Stop advertisement and listeners and remove the temporary code."""
-        self._active = False
+    async def open_pairing_window(
+        self, *, duration: int = DEFAULT_PAIRING_WINDOW
+    ) -> None:
+        """Allow one new phone pairing session for a bounded interval."""
+        if not self._active:
+            raise PairingProbeError("Phone remote receiver is not running")
+        if self._pairing_enabled:
+            raise PairingProbeError("A phone pairing window is already open")
+        if not 60 <= duration <= 900:
+            raise ValueError("Pairing duration must be between 60 and 900 seconds")
+        pair_listener = self._create_listener(self.pairing_port)
+        self._pair_listener = pair_listener
+        self._listeners.append(pair_listener)
+        self._pair_accept_task = asyncio.create_task(
+            self._accept_loop(pair_listener, pairing=True)
+        )
+        self._accept_tasks.append(self._pair_accept_task)
+        self._pairing_enabled = True
+        self._update_state(
+            state="pairing_available",
+            message="Pairing is open. Select this relay in the Google TV remote.",
+            pairing_code="",
+            pairing_expires_at=time.monotonic() + duration,
+        )
+        self._pairing_expiry_task = asyncio.create_task(
+            self._expire_pairing_after(duration)
+        )
+        LOG.info("Phone pairing window opened for %d seconds", duration)
+
+    async def close_pairing_window(
+        self, *, reason: str = "New phone pairing is closed."
+    ) -> None:
+        """Close new pairing without disconnecting an already trusted phone."""
+        self._pairing_enabled = False
+        if self._pair_listener is not None:
+            self._pair_listener.close()
+            with suppress(ValueError):
+                self._listeners.remove(self._pair_listener)
+            self._pair_listener = None
+        if self._pair_accept_task is not None:
+            self._pair_accept_task.cancel()
+            with suppress(ValueError):
+                self._accept_tasks.remove(self._pair_accept_task)
+            self._pair_accept_task = None
         current = asyncio.current_task()
-        if self._expiry_task is not None and self._expiry_task is not current:
-            self._expiry_task.cancel()
-        self._expiry_task = None
+        if (
+            self._pairing_expiry_task is not None
+            and self._pairing_expiry_task is not current
+        ):
+            self._pairing_expiry_task.cancel()
+        self._pairing_expiry_task = None
+        self._update_state(
+            state="receiver_ready",
+            message=reason,
+            pairing_code="",
+            pairing_expires_at=0.0,
+        )
+        LOG.info("Phone pairing window closed; trusted reconnect remains available")
+
+    async def stop(self, *, reason: str = "Phone remote receiver is stopped.") -> None:
+        """Stop the persistent receiver during add-on shutdown."""
+        self._active = False
+        self._pairing_enabled = False
+        self._pair_listener = None
+        self._pair_accept_task = None
+        current = asyncio.current_task()
+        if (
+            self._pairing_expiry_task is not None
+            and self._pairing_expiry_task is not current
+        ):
+            self._pairing_expiry_task.cancel()
+        self._pairing_expiry_task = None
         for listener in self._listeners:
             listener.close()
         self._listeners.clear()
@@ -395,14 +458,16 @@ class PairingProbe:
             message=reason,
             pairing_code="",
             remote_connected=False,
-            expires_at=0.0,
+            pairing_expires_at=0.0,
         )
-        LOG.info("Phone-remote pairing test stopped")
+        LOG.info("Phone-remote receiver stopped")
 
-    async def _expire_after(self, duration: int) -> None:
+    async def _expire_pairing_after(self, duration: int) -> None:
         try:
             await asyncio.sleep(duration)
-            await self.stop(reason="Pairing test ended after its time limit.")
+            await self.close_pairing_window(
+                reason="Pairing window expired; paired phones can still reconnect."
+            )
         except asyncio.CancelledError:
             pass
 
@@ -440,9 +505,9 @@ class PairingProbe:
         try:
             handler(client_socket, address)
         except (EOFError, OSError, PairingProbeError, SSL.Error) as error:
-            LOG.info("Phone-remote test connection ended: %s", error)
+            LOG.info("Phone-remote connection ended: %s", error)
         except Exception:
-            LOG.exception("Phone-remote test connection failed")
+            LOG.exception("Phone-remote connection failed")
         finally:
             with self._client_socket_lock:
                 self._client_sockets.discard(client_socket)
@@ -485,6 +550,8 @@ class PairingProbe:
         return connection
 
     def _run_pairing_session(self, client_socket: socket.socket, _address) -> None:
+        if not self._pairing_enabled:
+            raise PairingProbeError("New phone pairing is not currently enabled")
         if not self._session_lock.acquire(blocking=False):
             raise PairingProbeError("Another phone pairing session is already active")
         connection: SSL.Connection | None = None
@@ -555,16 +622,20 @@ class PairingProbe:
 
             fingerprint = hashlib.sha256(peer_der).hexdigest()
             self._save_trusted_phone(peer, fingerprint)
+            self._pairing_enabled = False
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(self._close_pairing_after_success)
             response = _polo_message()
             response.secret_ack.secret = expected
             self._write_polo(connection, response)
             self._update_state(
                 state="paired",
-                message="Phone paired. Press one navigation button to test capture.",
+                message="Phone paired permanently. Reconnects remain enabled.",
                 pairing_code="",
                 paired=True,
+                pairing_expires_at=0.0,
             )
-            LOG.info("Phone remote paired; no Apple TV command was sent")
+            LOG.info("Phone remote paired and trusted for future reconnects")
         finally:
             if connection is not None:
                 with suppress(Exception):
@@ -607,6 +678,13 @@ class PairingProbe:
         )
         self._trusted_fingerprints = {_certificate_fingerprint(certificate)}
 
+    def _close_pairing_after_success(self) -> None:
+        asyncio.create_task(
+            self.close_pairing_window(
+                reason="Phone paired permanently; trusted reconnect remains available."
+            )
+        )
+
     def _run_remote_session(self, client_socket: socket.socket, _address) -> None:
         if not self._trusted_fingerprints:
             raise PairingProbeError("No paired phone is trusted yet")
@@ -616,7 +694,7 @@ class PairingProbe:
         try:
             self._update_state(
                 state="remote_connected",
-                message="Phone remote connected. Press one navigation button.",
+                message="Phone remote connected. Commands will be sent to Apple TV.",
                 remote_connected=True,
             )
             self._send_remote_configuration(connection)
@@ -631,12 +709,16 @@ class PairingProbe:
                     continue
                 except (EOFError, SSL.Error):
                     break
-                self._capture_remote_message(message)
+                self._handle_remote_message(message)
         finally:
             with suppress(Exception):
                 connection.shutdown()
             connection.close()
-            self._update_state(remote_connected=False)
+            self._update_state(
+                state="receiver_ready",
+                message="Phone disconnected; waiting for its trusted reconnect.",
+                remote_connected=False,
+            )
 
     def _send_remote_configuration(self, connection: SSL.Connection) -> None:
         message = RemoteMessage()
@@ -647,7 +729,7 @@ class PairingProbe:
         info.unknown1 = 1
         info.unknown2 = "1"
         info.package_name = "com.google.android.tv.remote.service"
-        info.app_version = "0.3.1-test"
+        info.app_version = "0.4.0"
         write_delimited(connection, message.SerializeToString())
 
         active = RemoteMessage()
@@ -658,7 +740,7 @@ class PairingProbe:
         started.remote_start.started = True
         write_delimited(connection, started.SerializeToString())
 
-    def _capture_remote_message(self, message: RemoteMessage) -> None:
+    def _handle_remote_message(self, message: RemoteMessage) -> None:
         if message.HasField("remote_key_inject"):
             key = RemoteKeyCode.Name(message.remote_key_inject.key_code).removeprefix(
                 "KEYCODE_"
@@ -667,6 +749,15 @@ class PairingProbe:
                 message.remote_key_inject.direction
             ).removesuffix("_DIRECTION")
             summary = f"{key} ({direction})"
+            if direction != "SHORT":
+                self._update_state(
+                    state="command_ignored",
+                    message="Long-press commands are not enabled yet.",
+                    last_command=summary,
+                )
+                return
+            self._schedule_forward(key, summary)
+            return
         elif message.HasField("remote_app_link_launch_request"):
             summary = "APP_LINK (address withheld)"
         elif message.HasField("remote_ime_batch_edit"):
@@ -677,7 +768,42 @@ class PairingProbe:
             return
         self._update_state(
             state="command_received",
-            message="Command captured locally; nothing was forwarded to the Apple TV.",
+            message="Command captured but this command type is not forwarded.",
             last_command=summary,
         )
-        LOG.info("Captured phone remote command type=%s; forwarding disabled", summary)
+        LOG.info("Captured non-navigation phone command type=%s", summary)
+
+    def _schedule_forward(self, key: str, summary: str) -> None:
+        if self.command_handler is None or self._loop is None:
+            self._update_state(
+                state="command_error",
+                message="Apple TV forwarding is not configured.",
+                last_command=summary,
+            )
+            return
+        self._update_state(
+            state="command_forwarding",
+            message="Sending command to the selected Apple TV…",
+            last_command=summary,
+        )
+        future = asyncio.run_coroutine_threadsafe(self.command_handler(key), self._loop)
+
+        def completed(result) -> None:
+            try:
+                action = result.result()
+            except AppleTVRelayError as error:
+                self._update_state(
+                    state="command_error",
+                    message=f"Apple TV command failed: {error}",
+                )
+                LOG.warning(
+                    "Apple TV command forwarding failed: %s", type(error).__name__
+                )
+            else:
+                self._update_state(
+                    state="command_forwarded",
+                    message=f"Command sent to Apple TV ({action}).",
+                )
+                LOG.info("Forwarded phone remote command action=%s", action)
+
+        future.add_done_callback(completed)

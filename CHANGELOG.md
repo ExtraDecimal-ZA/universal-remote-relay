@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 (Experimental) — 2026-11-07
+
+- Kept the trusted phone receiver advertised for the full add-on lifetime so a
+  paired Samsung phone can reconnect after sleep or suspension.
+- Limited TCP 6467 to a ten-minute new-phone pairing window while keeping TCP
+  6466 available for trusted reconnects.
+- Added private Web UI pairing with the selected Apple TV using `pyatv`
+  Companion credentials stored under the protected add-on `/data` directory.
+- Added allow-listed forwarding for navigation, menu, home, play, pause, and
+  play/pause commands using the saved stable Apple TV identifier.
+- Kept text input, app links, unknown buttons, and long-press commands blocked.
+- Added simulated persistent-pairing, target-identity, Apple TV pairing, and
+  command-forwarding tests. Physical reconnect and forwarding remain pending.
+
 ## 0.3.1 (Experimental) — 2026-11-07
 
 - Made the private Web UI the only target discovery path.
