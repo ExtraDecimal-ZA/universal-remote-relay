@@ -144,7 +144,14 @@ class PairingRoundTripTest(unittest.TestCase):
             write_delimited(connection, configuration.SerializeToString())
             _receive_polo(connection, "configuration_ack")
 
-            code = str(self.probe.status()["pairing_code"])
+            deadline = time.monotonic() + 2
+            code = ""
+            while time.monotonic() < deadline:
+                code = str(self.probe.status()["pairing_code"])
+                if len(code) == 6:
+                    break
+                time.sleep(0.01)
+            self.assertEqual(len(code), 6)
             nonce = bytes.fromhex(code[2:])
             secret = pairing_secret(
                 _load_pem_certificate(self.client_cert),
