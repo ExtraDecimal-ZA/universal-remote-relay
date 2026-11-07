@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (Experimental) — 2026-11-07
+
+- Added a manually started, ten-minute Google TV phone-remote pairing probe.
+- Added local-only Android TV Remote v2 advertisement and TLS listeners on
+  ports 6467 and 6466 only while the probe is active.
+- Added a Home Assistant Ingress pairing-code display, status polling, explicit
+  stop control, and automatic expiry.
+- Persisted the relay identity and paired phone's public certificate in the
+  protected add-on data directory without logging protocol secrets.
+- Added command capture with text and app-link contents withheld; Apple TV
+  forwarding remains disabled.
+- Added a full simulated certificate, pairing-code, trusted reconnect, and
+  D-pad command round trip. Physical Samsung S24 Ultra pairing remains the next
+  acceptance test and full receiver emulation is not claimed.
+
 ## 0.2.2 (Experimental) — 2026-11-06
 
 - Made an empty target match nothing, preventing an unconfigured validation

@@ -92,11 +92,31 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
         async def save(options):
             self.saved = options
 
+        class PairingProbe:
+            def __init__(probe_self):
+                probe_self.active = False
+
+            def status(probe_self):
+                return {
+                    "state": "advertising" if probe_self.active else "idle",
+                    "message": "running" if probe_self.active else "stopped",
+                    "active": probe_self.active,
+                }
+
+            async def start(probe_self):
+                probe_self.active = True
+
+            async def stop(probe_self):
+                probe_self.active = False
+
+        self.pairing_probe = PairingProbe()
+
         app = create_app(
             options_path=self.options_path,
             allowed_remote=None,
             discover_func=discover,
             save_func=save,
+            pairing_probe=self.pairing_probe,
         )
         self.client = TestClient(TestServer(app))
         await self.client.start_server()
@@ -148,6 +168,18 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
         response = await self.client.post("/api/select", json=["not", "a", "device"])
         self.assertEqual(response.status, 400)
         self.assertIsNone(self.saved)
+
+    async def test_pairing_probe_is_started_and_stopped_through_private_api(self):
+        status = await self.client.get("/api/pairing/status")
+        self.assertFalse((await status.json())["active"])
+
+        started = await self.client.post("/api/pairing/start")
+        self.assertEqual(started.status, 200)
+        self.assertTrue((await started.json())["active"])
+
+        stopped = await self.client.post("/api/pairing/stop")
+        self.assertEqual(stopped.status, 200)
+        self.assertFalse((await stopped.json())["active"])
 
     async def test_supervisor_save_uses_self_options_endpoint(self):
         captured = {}

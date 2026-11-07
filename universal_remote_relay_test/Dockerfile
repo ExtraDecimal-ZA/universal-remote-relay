@@ -1,12 +1,12 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.14-alpine3.24-2026.08.0
 FROM ${BUILD_FROM}
 ARG BUILD_ARCH=aarch64
-ARG BUILD_VERSION=0.2.2
+ARG BUILD_VERSION=0.3.0
 LABEL io.hass.arch="${BUILD_ARCH}" \
       io.hass.type="app" \
       io.hass.version="${BUILD_VERSION}" \
       org.opencontainers.image.title="Universal Remote Relay Experimental" \
-      org.opencontainers.image.description="Private Apple TV and Android TV target selector" \
+      org.opencontainers.image.description="Private target selector and bounded phone pairing probe" \
       org.opencontainers.image.source="https://github.com/ExtraDecimal-ZA/universal-remote-relay"
 WORKDIR /app
 COPY requirements.txt /tmp/requirements.txt

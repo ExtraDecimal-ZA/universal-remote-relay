@@ -1,4 +1,4 @@
-# Universal Remote Relay (Experimental) v0.2.2
+# Universal Remote Relay (Experimental) v0.3.0
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
@@ -29,6 +29,24 @@ Enable **Scan once on startup**, restart the add-on, and inspect its log. A
 successful scan reports one matching device. Disable the option afterward to
 return to safe idle mode.
 
+## Pair a phone remote for the capture test
+
+1. Keep **Scan once on startup** disabled.
+2. Open the add-on Web UI and select **Start 10-minute pairing test**.
+3. Open the Google TV remote on the Samsung S24 Ultra while it is connected to
+   the same trusted local network.
+4. Select **Universal Remote Relay Test**.
+5. Enter the six-character code shown only in the add-on Web UI.
+6. Press one D-pad button. The Web UI should show the captured command and
+   confirm that nothing was forwarded to the Apple TV.
+7. Select **Stop test**. The local advertisement and listeners also stop
+   automatically after ten minutes.
+
+The probe uses Android TV Remote v2 TCP ports 6467 and 6466 only while active.
+It does not require router forwarding or an Internet-facing port. The relay's
+private identity and the paired phone's public certificate are stored under
+the add-on's protected `/data` directory and are never written to the log.
+
 ## Security and scope
 
 - The selector uses Home Assistant Ingress authentication.
@@ -38,9 +56,10 @@ return to safe idle mode.
   to the browser or written to the log.
 - Discovery is local and bounded.
 - Apple TV pairing and commands are not implemented yet.
-- Android TV is discovery-only. Pairing and commands are not implemented yet.
-- Google TV receiver emulation and phone pairing are not implemented or
-  claimed.
+- Phone pairing and local command capture are experimental and locally
+  simulated; physical Samsung S24 Ultra pairing is not yet claimed.
+- Apple TV forwarding is disabled during the phone pairing test.
+- Complete Google TV receiver emulation is not claimed.
 
 Keep **Start on boot**, **Watchdog**, and **Auto update** disabled until this
 version passes the Raspberry Pi acceptance test.
