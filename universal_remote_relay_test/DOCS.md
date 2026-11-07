@@ -1,11 +1,11 @@
-# Universal Remote Relay (Experimental) v0.3.0
+# Universal Remote Relay (Experimental) v0.3.1
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
 
 ## Select one target
 
-1. Start the add-on with **Scan once on startup** disabled.
+1. Start the add-on.
 2. Open the add-on's **Web UI**.
 3. Choose **Apple TV** or **Android TV / Google TV**.
 4. Wait for the bounded local-network scan.
@@ -21,25 +21,20 @@ The selection is saved immediately into the add-on options:
 - `target_address`: last observed address; informational fallback only.
 
 Only one target can be saved. Selecting another device replaces the previous
-selection while preserving unrelated options.
-
-## Validate the saved target
-
-Enable **Scan once on startup**, restart the add-on, and inspect its log. A
-successful scan reports one matching device. Disable the option afterward to
-return to safe idle mode.
+selection while preserving unrelated options. These four values are visible on
+the add-on's Configuration tab. Discovery runs only from the Web UI; there is
+no startup scan or duplicate configuration toggle.
 
 ## Pair a phone remote for the capture test
 
-1. Keep **Scan once on startup** disabled.
-2. Open the add-on Web UI and select **Start 10-minute pairing test**.
-3. Open the Google TV remote on the Samsung S24 Ultra while it is connected to
+1. Open the add-on Web UI and select **Start 10-minute pairing test**.
+2. Open the Google TV remote on the Samsung S24 Ultra while it is connected to
    the same trusted local network.
-4. Select **Universal Remote Relay Test**.
-5. Enter the six-character code shown only in the add-on Web UI.
-6. Press one D-pad button. The Web UI should show the captured command and
+3. Select **Universal Remote Relay Test**.
+4. Enter the six-character code shown only in the add-on Web UI.
+5. Press one D-pad button. The Web UI should show the captured command and
    confirm that nothing was forwarded to the Apple TV.
-7. Select **Stop test**. The local advertisement and listeners also stop
+6. Select **Stop test**. The local advertisement and listeners also stop
    automatically after ten minutes.
 
 The probe uses Android TV Remote v2 TCP ports 6467 and 6466 only while active.

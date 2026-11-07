@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 (Experimental) — 2026-11-07
+
+- Made the private Web UI the only target discovery path.
+- Removed the `enable_single_scan` configuration toggle and the complete
+  startup validation scanner.
+- Kept the saved platform, display name, preferred identifier, and last address
+  on the Configuration tab after Web UI selection.
+- Added migration cleanup so the next Web UI save removes the obsolete scan
+  option from existing add-on settings.
+
 ## 0.3.0 (Experimental) — 2026-11-07
 
 - Added a manually started, ten-minute Google TV phone-remote pairing probe.

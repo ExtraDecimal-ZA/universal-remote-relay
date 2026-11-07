@@ -11,10 +11,17 @@ from aiohttp.test_utils import TestServer
 APP = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP))
 
-from service import resolve_ingress_port, validate_ingress_port
+from service import configured_log_level, resolve_ingress_port, validate_ingress_port
 
 
 class IngressPortTest(unittest.IsolatedAsyncioTestCase):
+    def test_log_level_defaults_to_info(self):
+        self.assertEqual(configured_log_level({}), "info")
+
+    def test_invalid_log_level_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "log_level"):
+            configured_log_level({"log_level": "verbose"})
+
     async def test_reads_dynamic_port_from_supervisor_self_info(self):
         captured = {}
 

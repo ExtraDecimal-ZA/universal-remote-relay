@@ -67,6 +67,18 @@ jobs:
               raise SystemExit("experimental add-on must declare stage: experimental")
           if "ports" in experimental or "webui" in experimental:
               raise SystemExit("experimental selector must not publish a host port")
+          if "enable_single_scan" in experimental.get("options", {}):
+              raise SystemExit("startup scan option must remain removed")
+          if "enable_single_scan" in experimental.get("schema", {}):
+              raise SystemExit("startup scan schema must remain removed")
+          for key in (
+              "target_platform",
+              "target_name",
+              "target_identifier",
+              "target_address",
+          ):
+              if key not in experimental.get("options", {}):
+                  raise SystemExit(f"saved target field is missing: {key}")
 
           release_workflow = Path(
               ".github/workflows/experimental-arm64-build.yml"
@@ -83,6 +95,8 @@ jobs:
           for filename in (
               "universal_remote_relay/build.yaml",
               "universal_remote_relay_test/build.yaml",
+              "universal_remote_relay_test/app/safe_scan.py",
+              "universal_remote_relay_test/tests/test_safe_scan.py",
           ):
               if Path(filename).exists():
                   raise SystemExit(f"obsolete file must be removed: {filename}")

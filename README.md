@@ -3,9 +3,10 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.3.0
+## Experimental release: v0.3.1
 
-v0.3.0 retains the private, Home Assistant-authenticated selector for saving exactly
+v0.3.1 uses the private, Home Assistant-authenticated Web UI as the only device
+discovery path and saves exactly
 one target device:
 
 1. Open the add-on Web UI.
@@ -13,7 +14,10 @@ one target device:
 3. The add-on performs one bounded local discovery scan.
 4. Select one device from the single-choice list.
 5. Its platform, display name, preferred identifier, and current address are saved
-   immediately into the add-on options.
+   immediately into the add-on options and shown on the Configuration tab.
+
+There is no startup scan toggle or second validation scan. A device scan runs
+only when a platform is chosen in the Web UI.
 
 The identifier is the preferred match. Apple TV identifier stability has been
 verified. The Android TV discovery identity remains provisional until pairing
@@ -43,7 +47,7 @@ listeners stop automatically or when **Stop test** is selected.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.3.0 pairing probe stays experimental until discovery, pairing, reconnect,
+v0.3.1 pairing probe stays experimental until discovery, pairing, reconnect,
 command capture, expiry, resource-use, and rollback checks pass on the Pi and
 Samsung phone.
 
@@ -56,13 +60,12 @@ Add this repository to the Home Assistant Add-on Store:
 Install **Universal Remote Relay (Experimental)** only after both GitHub
 workflows pass and the versioned ARM64 image is anonymously downloadable.
 
-Keep Start on boot, Watchdog, Auto update, and automatic startup scanning off
-during the acceptance test.
+Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## First phone pairing test
 
-1. Install and start **Universal Remote Relay (Experimental) v0.3.0**.
-2. Keep **Scan once on startup** disabled and open the private Web UI.
+1. Install and start **Universal Remote Relay (Experimental) v0.3.1**.
+2. Open the private Web UI.
 3. Select **Start 10-minute pairing test**.
 4. On the Samsung S24 Ultra, open the Google TV remote and select
    **Universal Remote Relay Test**.

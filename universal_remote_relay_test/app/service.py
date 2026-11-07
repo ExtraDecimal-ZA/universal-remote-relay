@@ -8,11 +8,19 @@ import os
 
 from aiohttp import ClientSession, ClientTimeout, web
 from pairing_probe import PairingProbe
-from safe_scan import load_options, scan_once
-from selector import create_app
+from selector import create_app, read_options
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.3.0"
+VERSION = "0.3.1"
+LOG_LEVELS = {"debug", "info", "warning", "error"}
+
+
+def configured_log_level(options: dict[str, object]) -> str:
+    """Return a supported log level from the Home Assistant options."""
+    value = options.get("log_level", "info")
+    if not isinstance(value, str) or value not in LOG_LEVELS:
+        raise ValueError("log_level must be debug, info, warning, or error")
+    return value
 
 
 def validate_ingress_port(value: object, *, allow_zero: bool = False) -> int:
@@ -59,24 +67,19 @@ async def resolve_ingress_port() -> int:
 
 
 async def run() -> None:
-    settings = load_options()
+    options = read_options()
+    log_level = configured_log_level(options)
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper()),
+        level=getattr(logging, log_level.upper()),
         format="%(levelname)s %(message)s",
     )
     LOG.info(
-        "Universal Remote Relay v%s; single scan enabled=%s platform=%s",
+        "Universal Remote Relay v%s; web UI discovery only; target configured=%s",
         VERSION,
-        settings.enable_single_scan,
-        settings.target_platform,
+        bool(options.get("target_identifier")),
     )
     port = await resolve_ingress_port()
-    if settings.enable_single_scan:
-        if not await scan_once(settings):
-            LOG.error("The requested one-shot discovery did not find its target")
-            raise SystemExit(1)
-    else:
-        LOG.info("Safe idle mode; automatic discovery disabled")
+    LOG.info("No startup device scan is scheduled")
 
     pairing_probe = PairingProbe()
     runner = web.AppRunner(create_app(pairing_probe=pairing_probe), access_log=None)
