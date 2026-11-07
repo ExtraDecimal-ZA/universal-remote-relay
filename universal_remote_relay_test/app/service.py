@@ -7,11 +7,12 @@ import logging
 import os
 
 from aiohttp import ClientSession, ClientTimeout, web
+from pairing_probe import PairingProbe
 from safe_scan import load_options, scan_once
 from selector import create_app
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 
 def validate_ingress_port(value: object, *, allow_zero: bool = False) -> int:
@@ -77,7 +78,8 @@ async def run() -> None:
     else:
         LOG.info("Safe idle mode; automatic discovery disabled")
 
-    runner = web.AppRunner(create_app(), access_log=None)
+    pairing_probe = PairingProbe()
+    runner = web.AppRunner(create_app(pairing_probe=pairing_probe), access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
@@ -85,6 +87,7 @@ async def run() -> None:
     try:
         await asyncio.Event().wait()
     finally:
+        await pairing_probe.stop()
         await runner.cleanup()
 
 

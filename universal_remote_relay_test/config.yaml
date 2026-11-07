@@ -1,7 +1,7 @@
 name: Universal Remote Relay (Experimental)
-version: "0.2.2"
+version: "0.3.0"
 slug: universal_remote_relay_test
-description: Private single-target selector with Apple TV and Android TV discovery
+description: Private target selector with a bounded phone-remote pairing probe
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay
 image: ghcr.io/extradecimal-za/universal-remote-relay-test
 startup: application

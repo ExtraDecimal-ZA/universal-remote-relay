@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.2.2
+## Experimental release: v0.3.0
 
-v0.2.2 provides a private, Home Assistant-authenticated selector for saving exactly
+v0.3.0 retains the private, Home Assistant-authenticated selector for saving exactly
 one target device:
 
 1. Open the add-on Web UI.
@@ -24,18 +24,28 @@ The selector uses Home Assistant Ingress with a Supervisor-assigned dynamic
 port. It does not publish a host port, require a separate login, or return the
 Supervisor token to the browser.
 
+It also adds a manually started, ten-minute phone-remote pairing probe. While
+the probe is active, the add-on advertises **Universal Remote Relay Test** on
+the local network and listens on the Android TV Remote v2 pairing and control
+ports. A six-character pairing code is shown only inside the authenticated Web
+UI. After pairing, the probe can capture a navigation command for validation,
+but it does not forward that command to the Apple TV. The advertisement and
+listeners stop automatically or when **Stop test** is selected.
+
 ## Current capability boundary
 
 - Apple TV discovery through `pyatv`: implemented and physically verified.
-- Android TV Remote v2 discovery: implemented for the next physical test.
+- Android TV Remote v2 discovery: implemented.
+- Phone pairing and command capture: implemented and locally simulated; the
+  Samsung S24 Ultra physical test is still required.
 - Apple TV pairing and command dispatch: not implemented.
-- Android TV pairing and command dispatch: not implemented.
-- Google TV receiver emulation and Samsung phone pairing: not implemented or
-  claimed.
+- Apple TV command forwarding: deliberately disabled during the pairing test.
+- Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.2.2 selector stays experimental until its install, selection, restart,
-resource-use, and rollback checks pass on the Pi.
+v0.3.0 pairing probe stays experimental until discovery, pairing, reconnect,
+command capture, expiry, resource-use, and rollback checks pass on the Pi and
+Samsung phone.
 
 ## Repository installation
 
@@ -48,6 +58,22 @@ workflows pass and the versioned ARM64 image is anonymously downloadable.
 
 Keep Start on boot, Watchdog, Auto update, and automatic startup scanning off
 during the acceptance test.
+
+## First phone pairing test
+
+1. Install and start **Universal Remote Relay (Experimental) v0.3.0**.
+2. Keep **Scan once on startup** disabled and open the private Web UI.
+3. Select **Start 10-minute pairing test**.
+4. On the Samsung S24 Ultra, open the Google TV remote and select
+   **Universal Remote Relay Test**.
+5. Enter the six-character code shown in the add-on Web UI.
+6. Press one D-pad button and confirm that the Web UI reports the command as
+   captured without forwarding it.
+7. Select **Stop test**. The local advertisement and listeners should close.
+
+The phone must be on the same trusted local network. The probe uses local TCP
+ports 6467 for pairing and 6466 for the command session only while the test is
+active. No router forwarding or Internet exposure is required.
 
 ## Release gate
 

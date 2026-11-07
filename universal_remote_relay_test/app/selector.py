@@ -10,6 +10,7 @@ from pathlib import Path
 
 from aiohttp import ClientSession, ClientTimeout, web
 from discovery import discover_devices, normalize_platform
+from pairing_probe import PairingProbeError
 
 LOG = logging.getLogger("universal_remote_relay")
 OPTIONS = Path("/data/options.json")
@@ -19,6 +20,7 @@ OPTIONS_PATH_KEY = web.AppKey("options_path", Path)
 DISCOVER_FUNC_KEY = web.AppKey("discover_func", object)
 SAVE_FUNC_KEY = web.AppKey("save_func", object)
 DISCOVERED_KEY = web.AppKey("discovered", dict)
+PAIRING_PROBE_KEY = web.AppKey("pairing_probe", object)
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -34,11 +36,14 @@ INDEX_HTML = """<!doctype html>
     h1, h2 { margin-top: 0; }
     label { display: block; margin: 10px 0 6px; font-weight: 650; }
     select { width: 100%; padding: 10px; border-radius: 8px; }
+    button { padding: 10px 14px; margin: 6px 8px 6px 0; border: 0; border-radius: 8px; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .65; }
     .target { display: flex; gap: 12px; padding: 12px; margin-top: 10px; border: 1px solid #3b5966; border-radius: 9px; cursor: pointer; }
     .target:has(input:checked) { border-color: #03a9f4; background: #173b4d; }
     .muted { color: #aac0ca; }
     .ok { color: #72d572; }
     .error { color: #ff8a80; }
+    .code { font: 700 2rem ui-monospace, monospace; letter-spacing: .18em; margin: 12px 0; }
     code { word-break: break-all; }
   </style>
 </head>
@@ -60,13 +65,28 @@ INDEX_HTML = """<!doctype html>
     <div id="status" class="muted"></div>
     <div id="targets"></div>
   </section>
-  <p class="muted">Android TV is discovery-only in this experimental version. Pairing and remote control are not enabled.</p>
+  <section>
+    <h2>Phone remote pairing test</h2>
+    <p class="muted">Temporarily advertises <strong>Universal Remote Relay Test</strong> on your local network. Pairing and command capture stop automatically after ten minutes. Captured commands are not forwarded to the Apple TV.</p>
+    <button id="pair-start" type="button">Start 10-minute pairing test</button>
+    <button id="pair-stop" type="button" disabled>Stop test</button>
+    <div id="pair-status" class="muted">Pairing test is stopped.</div>
+    <div id="pair-code" class="code" hidden></div>
+    <div id="pair-detail" class="muted"></div>
+  </section>
+  <p class="muted">Google TV receiver pairing remains experimental until this physical phone test passes. Apple TV forwarding is disabled.</p>
 </main>
 <script>
 const platform = document.getElementById('platform');
 const status = document.getElementById('status');
 const targets = document.getElementById('targets');
 const saved = document.getElementById('saved');
+const pairStart = document.getElementById('pair-start');
+const pairStop = document.getElementById('pair-stop');
+const pairStatus = document.getElementById('pair-status');
+const pairCode = document.getElementById('pair-code');
+const pairDetail = document.getElementById('pair-detail');
+let pairingPoll = null;
 
 function platformName(value) {
   if (value === 'apple_tv') return 'Apple TV';
@@ -161,7 +181,48 @@ async function saveTarget(device, radio) {
 
 platform.addEventListener('change', () => scan().catch(showError));
 function showError(error) { status.className = 'error'; status.textContent = error.message; }
+
+function showPairing(pairing) {
+  pairStart.disabled = pairing.active;
+  pairStop.disabled = !pairing.active;
+  pairStatus.className = pairing.state === 'error' ? 'error' : pairing.paired ? 'ok' : 'muted';
+  pairStatus.textContent = pairing.message;
+  pairCode.hidden = !pairing.pairing_code;
+  pairCode.textContent = pairing.pairing_code || '';
+  const details = [];
+  if (pairing.client_name) details.push(`Phone: ${pairing.client_name}`);
+  if (pairing.last_command) details.push(`Last command: ${pairing.last_command}`);
+  if (pairing.active) details.push(`${pairing.seconds_remaining}s remaining`);
+  pairDetail.textContent = details.join(' · ');
+  if (pairing.active && !pairingPoll) pairingPoll = setInterval(loadPairing, 1000);
+  if (!pairing.active && pairingPoll) { clearInterval(pairingPoll); pairingPoll = null; }
+}
+
+async function pairingRequest(path) {
+  pairStart.disabled = true;
+  pairStop.disabled = true;
+  const response = await fetch(path, {method: 'POST'});
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || 'Pairing test request failed.');
+  showPairing(body);
+}
+
+async function loadPairing() {
+  const response = await fetch('api/pairing/status');
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || 'Could not read pairing status.');
+  showPairing(body);
+}
+
+pairStart.addEventListener('click', () => pairingRequest('api/pairing/start').catch(showPairingError));
+pairStop.addEventListener('click', () => pairingRequest('api/pairing/stop').catch(showPairingError));
+function showPairingError(error) {
+  pairStatus.className = 'error';
+  pairStatus.textContent = error.message;
+  loadPairing().catch(() => { pairStart.disabled = false; pairStop.disabled = true; });
+}
 loadConfig().catch(showError);
+loadPairing().catch(showPairingError);
 </script></body></html>"""
 
 
@@ -306,12 +367,40 @@ async def handle_select(request: web.Request) -> web.Response:
         )
 
 
+def _pairing_probe(request: web.Request):
+    probe = request.app[PAIRING_PROBE_KEY]
+    if probe is None:
+        raise web.HTTPServiceUnavailable(text="Pairing test is unavailable")
+    return probe
+
+
+async def handle_pairing_status(request: web.Request) -> web.Response:
+    return web.json_response(_pairing_probe(request).status())
+
+
+async def handle_pairing_start(request: web.Request) -> web.Response:
+    probe = _pairing_probe(request)
+    try:
+        await probe.start()
+        return web.json_response(probe.status())
+    except (OSError, PairingProbeError, ValueError) as error:
+        LOG.warning("Could not start pairing test: %s", error)
+        return web.json_response({"error": str(error)}, status=409)
+
+
+async def handle_pairing_stop(request: web.Request) -> web.Response:
+    probe = _pairing_probe(request)
+    await probe.stop()
+    return web.json_response(probe.status())
+
+
 def create_app(
     *,
     options_path: Path = OPTIONS,
     allowed_remote: str | None = SUPERVISOR_REMOTE,
     discover_func=discover_devices,
     save_func=save_supervisor_options,
+    pairing_probe=None,
 ) -> web.Application:
     app = web.Application(middlewares=[supervisor_only])
     app[ALLOWED_REMOTE_KEY] = allowed_remote
@@ -319,12 +408,16 @@ def create_app(
     app[DISCOVER_FUNC_KEY] = discover_func
     app[SAVE_FUNC_KEY] = save_func
     app[DISCOVERED_KEY] = {}
+    app[PAIRING_PROBE_KEY] = pairing_probe
     app.add_routes(
         [
             web.get("/", handle_index),
             web.get("/api/config", handle_config),
             web.post("/api/discover", handle_discover),
             web.post("/api/select", handle_select),
+            web.get("/api/pairing/status", handle_pairing_status),
+            web.post("/api/pairing/start", handle_pairing_start),
+            web.post("/api/pairing/stop", handle_pairing_stop),
         ]
     )
     return app
