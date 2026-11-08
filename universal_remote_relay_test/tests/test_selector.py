@@ -37,6 +37,10 @@ class SelectorTest(unittest.TestCase):
         self.assertIn("pairing.state.endsWith('_error')", INDEX_HTML)
         self.assertIn("pairingFailed ? 'error'", INDEX_HTML)
 
+    def test_apple_tv_non_json_error_has_safe_fallback(self):
+        self.assertIn("await readAppleTVResponse(response)", INDEX_HTML)
+        self.assertIn("Apple TV request failed (HTTP ${response.status})", INDEX_HTML)
+
     def test_selection_requires_complete_device_identity(self):
         with self.assertRaises(ValueError):
             Selection.from_payload({"platform": "apple_tv", "name": "TV"})

@@ -257,14 +257,23 @@ async function appleTVRequest(path, body = null) {
     options.body = JSON.stringify(body);
   }
   const response = await fetch(path, options);
-  const payload = await response.json();
+  const payload = await readAppleTVResponse(response);
   if (!response.ok) throw new Error(payload.error || 'Apple TV request failed.');
   showAppleTV(payload);
 }
 
+async function readAppleTVResponse(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Apple TV request failed (HTTP ${response.status}). Check the add-on log.`);
+  }
+}
+
 async function loadAppleTV() {
   const response = await fetch('api/apple-tv/status');
-  const payload = await response.json();
+  const payload = await readAppleTVResponse(response);
   if (!response.ok) throw new Error(payload.error || 'Could not read Apple TV status.');
   showAppleTV(payload);
 }

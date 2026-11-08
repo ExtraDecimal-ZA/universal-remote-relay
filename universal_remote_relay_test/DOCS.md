@@ -1,4 +1,4 @@
-# Universal Remote Relay (Experimental) v0.4.1
+# Universal Remote Relay (Experimental) v0.4.2
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
@@ -33,8 +33,9 @@ no startup scan or duplicate configuration toggle.
 4. Confirm the Web UI reports that Apple TV credentials were saved.
 
 The credentials are stored under protected add-on data and loaded again after
-restart. They are never placed in the Home Assistant configuration fields or
-written to the log.
+restarts and add-on image updates. They are never placed in the Home Assistant
+configuration fields or written to the log. Re-pairing is required only if the
+selected physical Apple TV changes or Apple invalidates its credentials.
 
 ## Pair or reconnect the phone remote
 
@@ -51,7 +52,8 @@ The receiver advertisement and TCP 6466 remain active while the add-on runs so
 the trusted phone can reconnect. TCP 6467 is opened only during the ten-minute
 new-phone pairing window. No router forwarding or Internet-facing port is
 required. The relay identity and paired phone's public certificate remain in
-the protected `/data` directory and are never written to the log.
+the protected `/data` directory, survive add-on image updates, and are never
+written to the log.
 
 ## Security and scope
 

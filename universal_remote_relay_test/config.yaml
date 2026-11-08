@@ -1,5 +1,5 @@
 name: Universal Remote Relay (Experimental)
-version: "0.4.1"
+version: "0.4.2"
 slug: universal_remote_relay_test
 description: Persistent phone remote relay with private Apple TV pairing
 url: https://github.com/ExtraDecimal-ZA/universal-remote-relay

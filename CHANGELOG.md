@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.2 (Experimental) — 2026-11-08
+
+- Pin `srptools` to the pyatv-compatible 1.0.1 release so Companion PIN
+  pairing can complete instead of failing before the PIN reaches the Apple TV.
+- Replace the removed pyatv base-exception reference with guarded provider
+  boundaries, preserving a useful pairing error instead of returning HTTP 500.
+- Show a clear HTTP fallback in the Web UI if an unexpected response is ever
+  not JSON.
+- Verify the real pyatv SRP call shape during tests.
+- Verify phone trust and Apple TV credential state survive replacement of the
+  add-on runtime while the protected `/data` directory is preserved, matching
+  Home Assistant add-on update behavior.
+
+Real Apple TV pairing and command forwarding remain physical acceptance tests.
+
 ## 0.4.1 (Experimental) — 2026-11-08
 
 - Immediately terminate any in-progress new-phone pairing session when its
