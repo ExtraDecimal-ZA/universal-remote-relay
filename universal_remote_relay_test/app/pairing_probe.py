@@ -750,7 +750,7 @@ class PairingProbe:
         info.unknown1 = 1
         info.unknown2 = "1"
         info.package_name = "com.google.android.tv.remote.service"
-        info.app_version = "0.4.1"
+        info.app_version = "0.4.2"
         write_delimited(connection, message.SerializeToString())
 
         active = RemoteMessage()

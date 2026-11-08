@@ -13,7 +13,7 @@ from pairing_probe import PairingProbe
 from selector import create_app, read_options
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 LOG_LEVELS = {"debug", "info", "warning", "error"}
 
 

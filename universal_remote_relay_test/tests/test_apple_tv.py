@@ -63,6 +63,11 @@ class FakePairing:
         self.closed = True
 
 
+class FailingPairing(FakePairing):
+    async def finish(self):
+        raise RuntimeError("dependency failure")
+
+
 class FakeRemote:
     def __init__(self):
         self.actions = []
@@ -150,6 +155,16 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(marker, {"identifier": "stable-id"})
 
+    async def test_pairing_dependency_error_is_wrapped_and_state_is_reset(self):
+        self.pairing = FailingPairing()
+
+        await self.controller.start_pairing()
+        with self.assertRaisesRegex(AppleTVRelayError, "verify the PIN"):
+            await self.controller.finish_pairing("1234")
+
+        self.assertTrue(self.pairing.closed)
+        self.assertEqual(self.controller.status()["state"], "error")
+
     async def test_matching_credential_marker_is_loaded_as_paired(self):
         await self.controller.close()
         self.controller.storage_path.write_text("{}", encoding="utf-8")
@@ -168,6 +183,29 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         await controller.initialize()
 
         self.assertTrue(controller.status()["paired"])
+        await controller.close()
+
+    async def test_pairing_survives_controller_replacement_with_same_data(self):
+        await self.pair_controller()
+        await self.controller.close()
+        replacement_connection = FakeConnection()
+
+        async def connect(config, loop, **options):
+            del config, loop, options
+            return replacement_connection
+
+        controller = AppleTVController(
+            options_path=self.options,
+            data_dir=self.root / "apple_tv",
+            scan_func=self.controller.scan_func,
+            connect_func=connect,
+            storage_factory=FakeStorage,
+        )
+        await controller.initialize()
+
+        self.assertTrue(controller.status()["paired"])
+        self.assertEqual(await controller.send_key("DPAD_UP"), "up")
+        self.assertEqual(replacement_connection.remote_control.actions, ["up"])
         await controller.close()
 
     async def test_credential_file_without_identity_marker_is_not_paired(self):

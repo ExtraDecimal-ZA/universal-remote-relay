@@ -185,7 +185,7 @@ class AppleTVController:
                 if pairing is not None:
                     await pairing.close()
                 raise
-            except (pyatv.exceptions.PyatvError, TimeoutError, OSError) as error:
+            except Exception as error:
                 if pairing is not None:
                     await pairing.close()
                 raise AppleTVRelayError(
@@ -230,7 +230,14 @@ class AppleTVController:
                     connected=False,
                 )
                 LOG.info("Apple TV credentials saved in the protected add-on data")
-            except (pyatv.exceptions.PyatvError, TimeoutError, OSError) as error:
+            except AppleTVRelayError:
+                self._state = replace(
+                    self._state,
+                    state="error",
+                    message="Apple TV rejected the pairing request.",
+                )
+                raise
+            except Exception as error:
                 self._state = replace(
                     self._state,
                     state="error",
@@ -323,7 +330,9 @@ class AppleTVController:
                     hosts=[target.address],
                     timeout=5,
                 )
-            except (pyatv.exceptions.PyatvError, TimeoutError, OSError):
+            # pyatv 0.18 exposes no common base exception for provider failures;
+            # an address-specific failure must still fall back to stable identity.
+            except Exception:  # noqa: BLE001
                 configs = []
         if configs:
             return target, configs[0]
@@ -331,7 +340,7 @@ class AppleTVController:
             configs = await self.scan_func(
                 asyncio.get_running_loop(), **base_options, timeout=10
             )
-        except (pyatv.exceptions.PyatvError, TimeoutError, OSError) as error:
+        except Exception as error:
             raise AppleTVRelayError(
                 "The selected Apple TV could not be reached on the local network."
             ) from error

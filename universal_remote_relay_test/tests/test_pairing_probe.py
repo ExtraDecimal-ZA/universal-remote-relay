@@ -205,6 +205,10 @@ class PairingRoundTripTest(unittest.TestCase):
         self.assertTrue(self.probe.status()["paired"])
         self.assertTrue(self.probe.client_cert_path.exists())
 
+        replacement = PairingProbe(data_dir=self.root / "relay")
+        replacement._load_trusted_phone()
+        self.assertTrue(replacement._trusted_fingerprints)
+        self.probe = replacement
         self.probe._active = True
         self._run_remote_command(
             RemoteKeyCode.KEYCODE_DPAD_UP,
