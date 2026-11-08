@@ -33,6 +33,10 @@ class SelectorTest(unittest.TestCase):
         self.assertIn("radio.checked = false", INDEX_HTML)
         self.assertIn("item.disabled = false", INDEX_HTML)
 
+    def test_command_errors_are_rendered_as_errors_even_when_paired(self):
+        self.assertIn("pairing.state.endsWith('_error')", INDEX_HTML)
+        self.assertIn("pairingFailed ? 'error'", INDEX_HTML)
+
     def test_selection_requires_complete_device_identity(self):
         with self.assertRaises(ValueError):
             Selection.from_payload({"platform": "apple_tv", "name": "TV"})

@@ -20,9 +20,10 @@ from androidtvremote2.remotemessage_pb2 import (
     RemoteKeyCode,
     RemoteMessage,
 )
-from OpenSSL import SSL
+from OpenSSL import SSL, crypto
 from pairing_probe import (
     PairingProbe,
+    PairingProbeError,
     _generate_identity,
     _load_pem_certificate,
     _polo_message,
@@ -228,6 +229,47 @@ class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(status["active"])
         self.assertFalse(status["pairing_active"])
         self.assertEqual(status["seconds_remaining"], 0)
+
+    async def test_closing_pairing_window_ends_only_in_progress_pairing(self):
+        probe = PairingProbe()
+        probe._active = True
+        pairing_socket, pairing_peer = socket.socketpair()
+        remote_socket, remote_peer = socket.socketpair()
+        try:
+            with probe._client_socket_lock:
+                probe._client_sockets.update((pairing_socket, remote_socket))
+                probe._pairing_client_sockets.add(pairing_socket)
+
+            await probe.close_pairing_window()
+
+            pairing_peer.settimeout(1)
+            self.assertEqual(pairing_peer.recv(1), b"")
+            remote_peer.sendall(b"x")
+            self.assertEqual(remote_socket.recv(1), b"x")
+        finally:
+            for active_socket in (
+                pairing_socket,
+                pairing_peer,
+                remote_socket,
+                remote_peer,
+            ):
+                active_socket.close()
+
+    async def test_closed_window_cannot_save_phone_trust(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cert_path = root / "phone.pem"
+            key_path = root / "phone.key"
+            _generate_identity(cert_path, key_path, "Phone")
+            certificate = crypto.load_certificate(
+                crypto.FILETYPE_PEM, cert_path.read_bytes()
+            )
+            probe = PairingProbe(data_dir=root / "probe")
+
+            with self.assertRaisesRegex(PairingProbeError, "Pairing window closed"):
+                probe._save_trusted_phone(certificate, "fingerprint")
+
+            self.assertFalse(probe.client_cert_path.exists())
 
     async def test_short_key_is_forwarded_on_receiver_loop(self):
         forwarded = []

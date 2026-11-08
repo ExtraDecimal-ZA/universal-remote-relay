@@ -262,6 +262,7 @@ class PairingProbe:
         self._pair_accept_task: asyncio.Task[None] | None = None
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._client_sockets: set[socket.socket] = set()
+        self._pairing_client_sockets: set[socket.socket] = set()
         self._client_socket_lock = threading.Lock()
         self._pairing_expiry_task: asyncio.Task[None] | None = None
         self._zeroconf: AsyncZeroconf | None = None
@@ -405,6 +406,12 @@ class PairingProbe:
             with suppress(ValueError):
                 self._accept_tasks.remove(self._pair_accept_task)
             self._pair_accept_task = None
+        with self._client_socket_lock:
+            pairing_client_sockets = tuple(self._pairing_client_sockets)
+        for client_socket in pairing_client_sockets:
+            with suppress(OSError):
+                client_socket.shutdown(socket.SHUT_RDWR)
+            client_socket.close()
         current = asyncio.current_task()
         if (
             self._pairing_expiry_task is not None
@@ -488,12 +495,18 @@ class PairingProbe:
                 client_socket.setblocking(True)
                 with self._client_socket_lock:
                     self._client_sockets.add(client_socket)
+                    if pairing:
+                        self._pairing_client_sockets.add(client_socket)
                 handler = (
                     self._run_pairing_session if pairing else self._run_remote_session
                 )
                 task = loop.create_task(
                     asyncio.to_thread(
-                        self._guard_client, handler, client_socket, address
+                        self._guard_client,
+                        handler,
+                        client_socket,
+                        address,
+                        pairing,
                     )
                 )
                 self._client_tasks.add(task)
@@ -501,7 +514,9 @@ class PairingProbe:
         except (asyncio.CancelledError, OSError):
             pass
 
-    def _guard_client(self, handler, client_socket: socket.socket, address) -> None:
+    def _guard_client(
+        self, handler, client_socket: socket.socket, address, pairing: bool
+    ) -> None:
         try:
             handler(client_socket, address)
         except (EOFError, OSError, PairingProbeError, SSL.Error) as error:
@@ -511,6 +526,8 @@ class PairingProbe:
         finally:
             with self._client_socket_lock:
                 self._client_sockets.discard(client_socket)
+                if pairing:
+                    self._pairing_client_sockets.discard(client_socket)
             client_socket.close()
 
     def _server_context(self, *, pairing: bool) -> SSL.Context:
@@ -662,6 +679,10 @@ class PairingProbe:
         write_delimited(connection, message.SerializeToString())
 
     def _save_trusted_phone(self, certificate: crypto.X509, fingerprint: str) -> None:
+        if not self._pairing_enabled:
+            raise PairingProbeError(
+                "Pairing window closed before phone trust could be saved"
+            )
         self.data_dir.mkdir(parents=True, exist_ok=True)
         temporary = self.client_cert_path.with_name(f"{self.client_cert_path.name}.tmp")
         temporary.write_bytes(crypto.dump_certificate(crypto.FILETYPE_PEM, certificate))
@@ -729,7 +750,7 @@ class PairingProbe:
         info.unknown1 = 1
         info.unknown2 = "1"
         info.package_name = "com.google.android.tv.remote.service"
-        info.app_version = "0.4.0"
+        info.app_version = "0.4.1"
         write_delimited(connection, message.SerializeToString())
 
         active = RemoteMessage()

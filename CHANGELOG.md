@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1 (Experimental) — 2026-11-08
+
+- Immediately terminate any in-progress new-phone pairing session when its
+  Web UI pairing window is closed or expires, without interrupting a trusted
+  phone's normal receiver connection.
+- Bind saved Apple TV credentials to the selected device's stable identifier;
+  a renamed Apple TV remains valid, while selecting a different device now
+  requires its own pairing.
+- Show command forwarding errors as errors in the Web UI even when the phone
+  itself remains paired.
+- Add regression coverage for each repaired lifecycle and status path.
+
+Samsung phone sleep/reconnect and real Apple TV command forwarding remain
+physical acceptance tests; this release does not claim either result yet.
+
 ## 0.4.0 (Experimental) — 2026-11-07
 
 - Kept the trusted phone receiver advertised for the full add-on lifetime so a

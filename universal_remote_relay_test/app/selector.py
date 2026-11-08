@@ -206,7 +206,8 @@ function showError(error) { status.className = 'error'; status.textContent = err
 function showPairing(pairing) {
   pairStart.disabled = pairing.pairing_active;
   pairStop.disabled = !pairing.pairing_active;
-  pairStatus.className = pairing.state === 'error' ? 'error' : pairing.paired ? 'ok' : 'muted';
+  const pairingFailed = pairing.state === 'error' || pairing.state.endsWith('_error');
+  pairStatus.className = pairingFailed ? 'error' : pairing.paired ? 'ok' : 'muted';
   pairStatus.textContent = pairing.message;
   pairCode.hidden = !pairing.pairing_code;
   pairCode.textContent = pairing.pairing_code || '';
