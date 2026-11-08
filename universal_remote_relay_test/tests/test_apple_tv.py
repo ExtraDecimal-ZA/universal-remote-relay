@@ -90,14 +90,14 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.options = self.root / "options.json"
-        self.options.write_text(
+        self.target = self.root / "target.json"
+        self.target.write_text(
             json.dumps(
                 {
-                    "target_platform": "apple_tv",
-                    "target_name": "Living Room",
-                    "target_identifier": "stable-id",
-                    "target_address": "192.0.2.10",
+                    "platform": "apple_tv",
+                    "name": "Living Room",
+                    "identifier": "stable-id",
+                    "address": "192.0.2.10",
                 }
             ),
             encoding="utf-8",
@@ -121,7 +121,7 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
             return self.connection
 
         self.controller = AppleTVController(
-            options_path=self.options,
+            target_path=self.target,
             data_dir=self.root / "apple_tv",
             scan_func=scan,
             pair_func=pair,
@@ -172,7 +172,7 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
             json.dumps({"identifier": "stable-id"}), encoding="utf-8"
         )
         controller = AppleTVController(
-            options_path=self.options,
+            target_path=self.target,
             data_dir=self.root / "apple_tv",
             scan_func=self.controller.scan_func,
             pair_func=self.controller.pair_func,
@@ -195,7 +195,7 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
             return replacement_connection
 
         controller = AppleTVController(
-            options_path=self.options,
+            target_path=self.target,
             data_dir=self.root / "apple_tv",
             scan_func=self.controller.scan_func,
             connect_func=connect,
@@ -212,7 +212,7 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         await self.controller.close()
         self.controller.storage_path.write_text("{}", encoding="utf-8")
         controller = AppleTVController(
-            options_path=self.options,
+            target_path=self.target,
             data_dir=self.root / "apple_tv",
             storage_factory=FakeStorage,
         )
@@ -224,10 +224,10 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_credentials_for_different_target_are_not_reused(self):
         await self.pair_controller()
-        payload = json.loads(self.options.read_text(encoding="utf-8"))
-        payload["target_identifier"] = "different-id"
-        payload["target_name"] = "Bedroom"
-        self.options.write_text(json.dumps(payload), encoding="utf-8")
+        payload = json.loads(self.target.read_text(encoding="utf-8"))
+        payload["identifier"] = "different-id"
+        payload["name"] = "Bedroom"
+        self.target.write_text(json.dumps(payload), encoding="utf-8")
 
         self.assertFalse(self.controller.status()["paired"])
         with self.assertRaisesRegex(AppleTVRelayError, "Pair the selected Apple TV"):
@@ -249,9 +249,9 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_target_name_can_change_without_changing_identity(self):
         await self.pair_controller()
-        payload = json.loads(self.options.read_text(encoding="utf-8"))
-        payload["target_name"] = "Renamed Apple TV"
-        self.options.write_text(json.dumps(payload), encoding="utf-8")
+        payload = json.loads(self.target.read_text(encoding="utf-8"))
+        payload["name"] = "Renamed Apple TV"
+        self.target.write_text(json.dumps(payload), encoding="utf-8")
 
         await self.controller.send_key("DPAD_UP")
 
@@ -266,7 +266,7 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
             return [] if "hosts" in options else [self.config]
 
         controller = AppleTVController(
-            options_path=self.options,
+            target_path=self.target,
             data_dir=self.root / "fallback",
             scan_func=scan,
             connect_func=self.controller.connect_func,
@@ -285,9 +285,9 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         await controller.close()
 
     async def test_android_target_is_rejected(self):
-        payload = json.loads(self.options.read_text(encoding="utf-8"))
-        payload["target_platform"] = "android_tv"
-        self.options.write_text(json.dumps(payload), encoding="utf-8")
+        payload = json.loads(self.target.read_text(encoding="utf-8"))
+        payload["platform"] = "android_tv"
+        self.target.write_text(json.dumps(payload), encoding="utf-8")
 
         with self.assertRaisesRegex(AppleTVRelayError, "not an Apple TV"):
             await self.controller.send_key("DPAD_UP")

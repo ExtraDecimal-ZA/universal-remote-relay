@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.3 (Experimental) — 2026-11-08
+
+- Translate the Samsung phone's `START_LONG`/`END_LONG` navigation events into
+  one Apple TV command on button release, while retaining `SHORT` support.
+- Keep power, volume, microphone, text, app-link, and unknown inputs blocked.
+- Move the Web UI-selected target from redundant Configuration fields into
+  protected add-on data, with one-time migration of the existing selection.
+- Remove the user-facing `Test` receiver name without regenerating the relay
+  identity or discarding the paired phone certificate.
+- Preserve the existing Apple TV credentials and phone trust files across the
+  update.
+
+Apple TV pairing, Back forwarding, phone sleep reconnect, and restart
+persistence are physically verified on v0.4.2. The expanded navigation mapping
+remains the v0.4.3 hardware acceptance test.
+
 ## 0.4.2 (Experimental) — 2026-11-08
 
 - Pin `srptools` to the pyatv-compatible 1.0.1 release so Companion PIN

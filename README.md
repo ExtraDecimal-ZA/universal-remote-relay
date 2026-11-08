@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.4.2
+## Experimental release: v0.4.3
 
-v0.4.2 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.3 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -13,8 +13,8 @@ one target device:
 2. Choose Apple TV or Android TV / Google TV.
 3. The add-on performs one bounded local discovery scan.
 4. Select one device from the single-choice list.
-5. Its platform, display name, preferred identifier, and current address are saved
-   immediately into the add-on options and shown on the Configuration tab.
+5. Its platform, display name, preferred identifier, and current address are
+   saved immediately in protected add-on data.
 
 There is no startup scan toggle or second validation scan. A device scan runs
 only when a platform is chosen in the Web UI.
@@ -46,14 +46,14 @@ selection.
 - Apple TV discovery through `pyatv`: implemented and physically verified.
 - Android TV Remote v2 discovery: implemented.
 - Initial Samsung S24 Ultra phone pairing: physically verified.
-- Persistent phone reconnect after sleep: implemented and simulated; physical
-  verification on the Samsung phone is still required.
-- Apple TV Companion pairing and allow-listed command forwarding: implemented
-  and simulated; physical Apple TV verification is still required.
+- Persistent phone reconnect after sleep: physically verified.
+- Apple TV Companion pairing and Back command forwarding: physically verified.
+- D-pad, Select, and Home release-event forwarding: implemented and simulated;
+  physical v0.4.3 verification is still required.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.4.2 stays experimental until persistent reconnect, Apple TV pairing,
+v0.4.3 stays experimental until the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
 
@@ -70,16 +70,17 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay (Experimental) v0.4.2**.
+1. Install and start **Universal Remote Relay (Experimental) v0.4.3**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.
 4. Select **Open 10-minute pairing window** only if the Samsung phone is not
    already paired.
 5. On the Samsung S24 Ultra, open the Google TV remote and select
-   **Universal Remote Relay Test**.
+   **Universal Remote Relay**.
 6. Enter the six-character code if the phone requests new pairing.
-7. Press one D-pad button and confirm the Apple TV responds.
+7. Test D-pad Up/Down/Left/Right, Select, Home, and Back once each and confirm
+   every button produces exactly one Apple TV action.
 8. Let the phone sleep, wake it, reopen the remote, and confirm it reconnects
    without another pairing code.
 

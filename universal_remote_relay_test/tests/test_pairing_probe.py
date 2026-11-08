@@ -91,6 +91,20 @@ class PairingPrimitiveTest(unittest.TestCase):
                 int(code[:2], 16), pairing_secret(client, server, b"\xab\xcd")[0]
             )
 
+    def test_receiver_rename_preserves_existing_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cert_path = root / "relay.pem"
+            key_path = root / "relay.key"
+            _generate_identity(cert_path, key_path, "Universal Remote Relay Test")
+            original_cert = cert_path.read_bytes()
+            original_key = key_path.read_bytes()
+
+            _generate_identity(cert_path, key_path, "Universal Remote Relay")
+
+            self.assertEqual(cert_path.read_bytes(), original_cert)
+            self.assertEqual(key_path.read_bytes(), original_key)
+
 
 class PairingRoundTripTest(unittest.TestCase):
     def setUp(self):
@@ -296,6 +310,64 @@ class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(forwarded, ["DPAD_UP"])
         self.assertEqual(probe.status()["last_command"], "DPAD_UP (SHORT)")
+
+    async def test_press_and_release_is_forwarded_exactly_once(self):
+        forwarded = []
+
+        async def send(key):
+            forwarded.append(key)
+            return "select"
+
+        probe = PairingProbe(command_handler=send)
+        probe._loop = asyncio.get_running_loop()
+        for direction in (RemoteDirection.START_LONG, RemoteDirection.END_LONG):
+            message = RemoteMessage()
+            message.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_DPAD_CENTER
+            message.remote_key_inject.direction = direction
+            probe._handle_remote_message(message)
+        for _ in range(20):
+            if forwarded:
+                break
+            await asyncio.sleep(0.01)
+
+        self.assertEqual(forwarded, ["DPAD_CENTER"])
+        self.assertEqual(probe.status()["last_command"], "DPAD_CENTER (END_LONG)")
+
+    async def test_press_start_alone_is_not_forwarded(self):
+        forwarded = []
+
+        async def send(key):
+            forwarded.append(key)
+            return "up"
+
+        probe = PairingProbe(command_handler=send)
+        probe._loop = asyncio.get_running_loop()
+        message = RemoteMessage()
+        message.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_DPAD_UP
+        message.remote_key_inject.direction = RemoteDirection.START_LONG
+        probe._handle_remote_message(message)
+        await asyncio.sleep(0)
+
+        self.assertEqual(forwarded, [])
+        self.assertEqual(probe.status()["state"], "command_pending")
+
+    async def test_unsupported_power_button_is_not_forwarded(self):
+        forwarded = []
+
+        async def send(key):
+            forwarded.append(key)
+            return "unused"
+
+        probe = PairingProbe(command_handler=send)
+        probe._loop = asyncio.get_running_loop()
+        message = RemoteMessage()
+        message.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_POWER
+        message.remote_key_inject.direction = RemoteDirection.END_LONG
+        probe._handle_remote_message(message)
+        await asyncio.sleep(0)
+
+        self.assertEqual(forwarded, [])
+        self.assertEqual(probe.status()["state"], "command_ignored")
 
     async def test_text_input_is_captured_but_never_forwarded(self):
         forwarded = []
