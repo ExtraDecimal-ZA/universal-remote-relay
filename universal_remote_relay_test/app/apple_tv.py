@@ -93,12 +93,14 @@ class AppleTVController:
         self.options_path = options_path
         self.data_dir = data_dir
         self.storage_path = data_dir / "pyatv.json"
+        self.paired_target_path = data_dir / "paired_target.json"
         self.scan_func = scan_func or pyatv.scan
         self.pair_func = pair_func or pyatv.pair
         self.connect_func = connect_func or pyatv.connect
         self.storage_factory = storage_factory
         self._storage = None
         self._pairing = None
+        self._pairing_target: AppleTVTarget | None = None
         self._connection = None
         self._state = AppleTVState()
         self._pairing_lock = asyncio.Lock()
@@ -113,30 +115,41 @@ class AppleTVController:
             str(self.storage_path), asyncio.get_running_loop()
         )
         await self._storage.load()
-        credentials_saved = self.storage_path.exists()
-        target_name = ""
+        target = None
         try:
-            target_name = AppleTVTarget.from_options(self.options_path).name
+            target = AppleTVTarget.from_options(self.options_path)
         except (AppleTVRelayError, json.JSONDecodeError, OSError):
             pass
-        if credentials_saved:
+        credentials_saved = bool(
+            target
+            and self.storage_path.exists()
+            and self._load_paired_target_identifier() == target.identifier
+        )
+        if credentials_saved and target is not None:
             self._state = replace(
                 self._state,
                 state="paired",
                 message="Apple TV credentials loaded. Ready to connect on command.",
-                target_name=target_name,
+                target_name=target.name,
                 paired=True,
             )
-        elif target_name:
-            self._state = replace(self._state, target_name=target_name)
+        elif target is not None:
+            self._state = replace(self._state, target_name=target.name)
 
     def status(self) -> dict[str, object]:
         state = self._state
         try:
-            state = replace(
-                state,
-                target_name=AppleTVTarget.from_options(self.options_path).name,
-            )
+            target = AppleTVTarget.from_options(self.options_path)
+            target_is_paired = self._is_paired_target(target)
+            if state.paired and not target_is_paired:
+                state = replace(
+                    state,
+                    state="not_paired",
+                    message="Pair the selected Apple TV before forwarding commands.",
+                    paired=False,
+                    connected=False,
+                )
+            state = replace(state, target_name=target.name)
         except (AppleTVRelayError, json.JSONDecodeError, OSError):
             pass
         return asdict(state)
@@ -179,6 +192,7 @@ class AppleTVController:
                     "Apple TV pairing could not start; check the selected target."
                 ) from error
             self._pairing = pairing
+            self._pairing_target = target
             self._state = replace(
                 self._state,
                 state="waiting_for_pin",
@@ -196,6 +210,9 @@ class AppleTVController:
             pairing = self._pairing
             if pairing is None:
                 raise AppleTVRelayError("Start Apple TV pairing first.")
+            pairing_target = self._pairing_target
+            if pairing_target is None:
+                raise AppleTVRelayError("The Apple TV pairing target was lost.")
             try:
                 pairing.pin(int(pin))
                 await pairing.finish()
@@ -204,6 +221,7 @@ class AppleTVController:
                 await self._storage.save()
                 if self.storage_path.exists():
                     os.chmod(self.storage_path, 0o600)
+                self._save_paired_target_identifier(pairing_target.identifier)
                 self._state = replace(
                     self._state,
                     state="paired",
@@ -224,12 +242,14 @@ class AppleTVController:
             finally:
                 await pairing.close()
                 self._pairing = None
+                self._pairing_target = None
 
     async def cancel_pairing(self) -> None:
         async with self._pairing_lock:
             if self._pairing is not None:
                 await self._pairing.close()
                 self._pairing = None
+            self._pairing_target = None
             self._state = replace(
                 self._state,
                 state="paired" if self._state.paired else "not_paired",
@@ -246,6 +266,14 @@ class AppleTVController:
         if action is None:
             raise AppleTVRelayError(f"Unsupported remote button: {key.strip().upper()}")
         await self.initialize()
+        try:
+            target = AppleTVTarget.from_options(self.options_path)
+        except (json.JSONDecodeError, OSError) as error:
+            raise AppleTVRelayError("The saved Apple TV target is invalid.") from error
+        if not self._is_paired_target(target):
+            raise AppleTVRelayError(
+                "Pair the selected Apple TV in the Web UI before sending commands."
+            )
         async with self._command_lock:
             for attempt in range(2):
                 try:
@@ -345,3 +373,31 @@ class AppleTVController:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._state = replace(self._state, connected=False)
+
+    def _is_paired_target(self, target: AppleTVTarget) -> bool:
+        return bool(
+            self.storage_path.exists()
+            and self._load_paired_target_identifier() == target.identifier
+        )
+
+    def _load_paired_target_identifier(self) -> str | None:
+        try:
+            payload = json.loads(self.paired_target_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+        identifier = payload.get("identifier") if isinstance(payload, dict) else None
+        return identifier if isinstance(identifier, str) and identifier else None
+
+    def _save_paired_target_identifier(self, identifier: str) -> None:
+        """Atomically bind saved credentials to one stable Apple TV identity."""
+        temporary_path = self.paired_target_path.with_suffix(".json.tmp")
+        try:
+            with temporary_path.open("w", encoding="utf-8") as marker:
+                json.dump({"identifier": identifier}, marker)
+                marker.write("\n")
+                marker.flush()
+                os.fsync(marker.fileno())
+            os.chmod(temporary_path, 0o600)
+            temporary_path.replace(self.paired_target_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)

@@ -16,7 +16,8 @@ from apple_tv import AppleTVController, AppleTVRelayError
 
 class FakeStorage:
     def __init__(self, filename, loop):
-        del filename, loop
+        del loop
+        self.filename = Path(filename)
         self.loaded = False
         self.saved = False
 
@@ -25,6 +26,7 @@ class FakeStorage:
 
     async def save(self):
         self.saved = True
+        self.filename.write_text("{}", encoding="utf-8")
 
 
 class FakeService:
@@ -127,6 +129,11 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         await self.controller.close()
         self.directory.cleanup()
 
+    async def pair_controller(self, controller=None):
+        controller = controller or self.controller
+        await controller.start_pairing()
+        await controller.finish_pairing("1234")
+
     async def test_pairing_pin_is_saved_once(self):
         await self.controller.start_pairing()
         self.assertEqual(self.controller.status()["state"], "waiting_for_pin")
@@ -138,10 +145,17 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.pairing.closed)
         self.assertTrue(self.controller._storage.saved)
         self.assertTrue(self.controller.status()["paired"])
+        marker = json.loads(
+            self.controller.paired_target_path.read_text(encoding="utf-8")
+        )
+        self.assertEqual(marker, {"identifier": "stable-id"})
 
-    async def test_existing_credential_file_is_loaded_as_paired(self):
+    async def test_matching_credential_marker_is_loaded_as_paired(self):
         await self.controller.close()
         self.controller.storage_path.write_text("{}", encoding="utf-8")
+        self.controller.paired_target_path.write_text(
+            json.dumps({"identifier": "stable-id"}), encoding="utf-8"
+        )
         controller = AppleTVController(
             options_path=self.options,
             data_dir=self.root / "apple_tv",
@@ -156,7 +170,33 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(controller.status()["paired"])
         await controller.close()
 
+    async def test_credential_file_without_identity_marker_is_not_paired(self):
+        await self.controller.close()
+        self.controller.storage_path.write_text("{}", encoding="utf-8")
+        controller = AppleTVController(
+            options_path=self.options,
+            data_dir=self.root / "apple_tv",
+            storage_factory=FakeStorage,
+        )
+
+        await controller.initialize()
+
+        self.assertFalse(controller.status()["paired"])
+        await controller.close()
+
+    async def test_credentials_for_different_target_are_not_reused(self):
+        await self.pair_controller()
+        payload = json.loads(self.options.read_text(encoding="utf-8"))
+        payload["target_identifier"] = "different-id"
+        payload["target_name"] = "Bedroom"
+        self.options.write_text(json.dumps(payload), encoding="utf-8")
+
+        self.assertFalse(self.controller.status()["paired"])
+        with self.assertRaisesRegex(AppleTVRelayError, "Pair the selected Apple TV"):
+            await self.controller.send_key("DPAD_UP")
+
     async def test_saved_identifier_and_address_are_used_for_command(self):
+        await self.pair_controller()
         action = await self.controller.send_key("DPAD_UP")
 
         self.assertEqual(action, "up")
@@ -170,6 +210,7 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.connection.remote_control.actions, [])
 
     async def test_target_name_can_change_without_changing_identity(self):
+        await self.pair_controller()
         payload = json.loads(self.options.read_text(encoding="utf-8"))
         payload["target_name"] = "Renamed Apple TV"
         self.options.write_text(json.dumps(payload), encoding="utf-8")
@@ -194,6 +235,8 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
             storage_factory=FakeStorage,
         )
         await controller.initialize()
+        controller.storage_path.write_text("{}", encoding="utf-8")
+        controller._save_paired_target_identifier("stable-id")
 
         action = await controller.send_key("DPAD_UP")
 
