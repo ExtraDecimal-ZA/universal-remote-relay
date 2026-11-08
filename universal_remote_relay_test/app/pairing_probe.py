@@ -24,7 +24,7 @@ from androidtvremote2.remotemessage_pb2 import (
     RemoteKeyCode,
     RemoteMessage,
 )
-from apple_tv import AppleTVRelayError
+from apple_tv import COMMAND_MAP, AppleTVRelayError
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -51,7 +51,7 @@ class ProbeState:
     """Non-secret state safe to return through authenticated Home Assistant Ingress."""
 
     state: str = "idle"
-    message: str = "Pairing test is stopped."
+    message: str = "Phone receiver is stopped."
     pairing_code: str = ""
     client_name: str = ""
     paired: bool = False
@@ -239,7 +239,7 @@ class PairingProbe:
         self,
         *,
         data_dir: Path = Path("/data/pairing_probe"),
-        receiver_name: str = "Universal Remote Relay Test",
+        receiver_name: str = "Universal Remote Relay",
         pairing_port: int = PAIRING_PORT,
         remote_port: int = REMOTE_PORT,
         command_handler: Callable[[str], Awaitable[str]] | None = None,
@@ -750,7 +750,7 @@ class PairingProbe:
         info.unknown1 = 1
         info.unknown2 = "1"
         info.package_name = "com.google.android.tv.remote.service"
-        info.app_version = "0.4.2"
+        info.app_version = "0.4.3"
         write_delimited(connection, message.SerializeToString())
 
         active = RemoteMessage()
@@ -770,10 +770,27 @@ class PairingProbe:
                 message.remote_key_inject.direction
             ).removesuffix("_DIRECTION")
             summary = f"{key} ({direction})"
+            if key not in COMMAND_MAP:
+                self._update_state(
+                    state="command_ignored",
+                    message="This phone button is not forwarded.",
+                    last_command=summary,
+                )
+                return
+            if direction == "START_LONG":
+                self._update_state(
+                    state="command_pending",
+                    message="Button press started; waiting for release.",
+                    last_command=summary,
+                )
+                return
+            if direction == "END_LONG":
+                self._schedule_forward(key, summary)
+                return
             if direction != "SHORT":
                 self._update_state(
                     state="command_ignored",
-                    message="Long-press commands are not enabled yet.",
+                    message="This phone button event is not supported.",
                     last_command=summary,
                 )
                 return

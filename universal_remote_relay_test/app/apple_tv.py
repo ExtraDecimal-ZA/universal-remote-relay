@@ -12,9 +12,10 @@ from pathlib import Path
 import pyatv
 from pyatv.const import Protocol
 from pyatv.storage.file_storage import FileStorage
+from target_store import SavedTarget
 
 LOG = logging.getLogger("universal_remote_relay")
-OPTIONS = Path("/data/options.json")
+TARGET = Path("/data/target.json")
 DATA_DIR = Path("/data/apple_tv")
 
 COMMAND_MAP = {
@@ -37,34 +38,16 @@ class AppleTVRelayError(RuntimeError):
     """Raised when Apple TV pairing or command forwarding cannot continue."""
 
 
-@dataclass(frozen=True, slots=True)
-class AppleTVTarget:
-    """One saved Apple TV identity selected through the private Web UI."""
-
-    name: str
-    identifier: str
-    address: str
-
-    @classmethod
-    def from_options(cls, path: Path) -> AppleTVTarget:
-        if not path.exists():
-            raise AppleTVRelayError("Select an Apple TV in the Web UI first.")
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if (
-            not isinstance(payload, dict)
-            or payload.get("target_platform") != "apple_tv"
-        ):
-            raise AppleTVRelayError("The saved target is not an Apple TV.")
-        identifier = payload.get("target_identifier")
-        if not isinstance(identifier, str) or not identifier.strip():
-            raise AppleTVRelayError("The saved Apple TV identifier is missing.")
-        name = payload.get("target_name")
-        address = payload.get("target_address")
-        return cls(
-            name=name.strip() if isinstance(name, str) and name.strip() else "Apple TV",
-            identifier=identifier.strip(),
-            address=address.strip() if isinstance(address, str) else "",
-        )
+def load_apple_target(path: Path) -> SavedTarget:
+    try:
+        target = SavedTarget.load(path)
+    except FileNotFoundError as error:
+        raise AppleTVRelayError("Select an Apple TV in the Web UI first.") from error
+    except (json.JSONDecodeError, TypeError, ValueError, OSError) as error:
+        raise AppleTVRelayError("The saved Apple TV target is invalid.") from error
+    if target.platform != "apple_tv":
+        raise AppleTVRelayError("The saved target is not an Apple TV.")
+    return target
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,14 +66,14 @@ class AppleTVController:
     def __init__(
         self,
         *,
-        options_path: Path = OPTIONS,
+        target_path: Path = TARGET,
         data_dir: Path = DATA_DIR,
         scan_func=None,
         pair_func=None,
         connect_func=None,
         storage_factory=FileStorage,
     ) -> None:
-        self.options_path = options_path
+        self.target_path = target_path
         self.data_dir = data_dir
         self.storage_path = data_dir / "pyatv.json"
         self.paired_target_path = data_dir / "paired_target.json"
@@ -100,7 +83,7 @@ class AppleTVController:
         self.storage_factory = storage_factory
         self._storage = None
         self._pairing = None
-        self._pairing_target: AppleTVTarget | None = None
+        self._pairing_target: SavedTarget | None = None
         self._connection = None
         self._state = AppleTVState()
         self._pairing_lock = asyncio.Lock()
@@ -117,8 +100,8 @@ class AppleTVController:
         await self._storage.load()
         target = None
         try:
-            target = AppleTVTarget.from_options(self.options_path)
-        except (AppleTVRelayError, json.JSONDecodeError, OSError):
+            target = load_apple_target(self.target_path)
+        except AppleTVRelayError:
             pass
         credentials_saved = bool(
             target
@@ -139,7 +122,7 @@ class AppleTVController:
     def status(self) -> dict[str, object]:
         state = self._state
         try:
-            target = AppleTVTarget.from_options(self.options_path)
+            target = load_apple_target(self.target_path)
             target_is_paired = self._is_paired_target(target)
             if state.paired and not target_is_paired:
                 state = replace(
@@ -150,7 +133,7 @@ class AppleTVController:
                     connected=False,
                 )
             state = replace(state, target_name=target.name)
-        except (AppleTVRelayError, json.JSONDecodeError, OSError):
+        except AppleTVRelayError:
             pass
         return asdict(state)
 
@@ -273,10 +256,7 @@ class AppleTVController:
         if action is None:
             raise AppleTVRelayError(f"Unsupported remote button: {key.strip().upper()}")
         await self.initialize()
-        try:
-            target = AppleTVTarget.from_options(self.options_path)
-        except (json.JSONDecodeError, OSError) as error:
-            raise AppleTVRelayError("The saved Apple TV target is invalid.") from error
+        target = load_apple_target(self.target_path)
         if not self._is_paired_target(target):
             raise AppleTVRelayError(
                 "Pair the selected Apple TV in the Web UI before sending commands."
@@ -316,7 +296,7 @@ class AppleTVController:
         await self._disconnect()
 
     async def _scan_target(self):
-        target = AppleTVTarget.from_options(self.options_path)
+        target = load_apple_target(self.target_path)
         base_options = {
             "identifier": target.identifier,
             "storage": self._storage,
@@ -383,7 +363,7 @@ class AppleTVController:
             await asyncio.gather(*pending, return_exceptions=True)
         self._state = replace(self._state, connected=False)
 
-    def _is_paired_target(self, target: AppleTVTarget) -> bool:
+    def _is_paired_target(self, target: SavedTarget) -> bool:
         return bool(
             self.storage_path.exists()
             and self._load_paired_target_identifier() == target.identifier

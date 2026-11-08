@@ -77,8 +77,10 @@ jobs:
               "target_identifier",
               "target_address",
           ):
-              if key not in experimental.get("options", {}):
-                  raise SystemExit(f"saved target field is missing: {key}")
+              if key in experimental.get("options", {}):
+                  raise SystemExit(f"retired target option must be removed: {key}")
+              if key in experimental.get("schema", {}):
+                  raise SystemExit(f"retired target schema must be removed: {key}")
 
           release_workflow = Path(
               ".github/workflows/experimental-arm64-build.yml"

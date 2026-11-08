@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
-import os
-from dataclasses import dataclass
 from pathlib import Path
 
-from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp import web
 from apple_tv import AppleTVRelayError
 from discovery import discover_devices, normalize_platform
 from pairing_probe import PairingProbeError
+from target_store import SavedTarget
 
 LOG = logging.getLogger("universal_remote_relay")
-OPTIONS = Path("/data/options.json")
+TARGET = Path("/data/target.json")
 SUPERVISOR_REMOTE = "172.30.32.2"
 ALLOWED_REMOTE_KEY = web.AppKey("allowed_remote", str | None)
-OPTIONS_PATH_KEY = web.AppKey("options_path", Path)
+TARGET_PATH_KEY = web.AppKey("target_path", Path)
 DISCOVER_FUNC_KEY = web.AppKey("discover_func", object)
 SAVE_FUNC_KEY = web.AppKey("save_func", object)
 DISCOVERED_KEY = web.AppKey("discovered", dict)
@@ -69,7 +68,7 @@ INDEX_HTML = """<!doctype html>
   </section>
   <section>
     <h2>Apple TV connection</h2>
-    <p class="muted">Pair the relay once with the selected Apple TV. Credentials stay in the protected add-on data and are reused after restarts.</p>
+    <p class="muted">Pair the relay once with the selected Apple TV. Credentials stay in the protected add-on data and are reused after restarts and updates.</p>
     <button id="atv-start" type="button">Pair with selected Apple TV</button>
     <div id="atv-pin-row" hidden>
       <label for="atv-pin">PIN shown on Apple TV</label>
@@ -81,7 +80,7 @@ INDEX_HTML = """<!doctype html>
   </section>
   <section>
     <h2>Phone remote</h2>
-    <p class="muted"><strong>Universal Remote Relay Test</strong> remains available for trusted phone reconnects while the add-on runs. The ten-minute window allows a new phone to pair; closing it does not forget an already paired phone.</p>
+    <p class="muted"><strong>Universal Remote Relay</strong> remains available for trusted phone reconnects while the add-on runs. The ten-minute window allows a new phone to pair; closing it does not forget an already paired phone.</p>
     <button id="pair-start" type="button">Open 10-minute pairing window</button>
     <button id="pair-stop" type="button" disabled>Close pairing window</button>
     <div id="pair-status" class="muted">Loading phone receiver status…</div>
@@ -189,10 +188,10 @@ async function saveTarget(device, radio) {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Could not save the selected target.');
-    showSaved(body.options);
+    showSaved(body.target);
     loadAppleTV().catch(showAppleTVError);
     status.className = 'ok';
-    status.textContent = 'Target saved. The Configuration tab now contains this device information.';
+    status.textContent = 'Target saved in protected add-on data.';
   } catch (error) {
     radio.checked = false;
     for (const item of targets.querySelectorAll('input')) item.disabled = false;
@@ -224,7 +223,7 @@ async function pairingRequest(path) {
   pairStop.disabled = true;
   const response = await fetch(path, {method: 'POST'});
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Pairing test request failed.');
+  if (!response.ok) throw new Error(body.error || 'Phone pairing request failed.');
   showPairing(body);
 }
 
@@ -293,77 +292,8 @@ loadAppleTV().catch(showAppleTVError);
 </script></body></html>"""
 
 
-@dataclass(frozen=True, slots=True)
-class Selection:
-    platform: str
-    name: str
-    address: str
-    identifier: str
-
-    @classmethod
-    def from_payload(cls, payload: object) -> Selection:
-        if not isinstance(payload, dict):
-            raise TypeError("Selection must be an object")
-        platform = normalize_platform(payload.get("platform"))
-        values: dict[str, str] = {}
-        for key in ("name", "address", "identifier"):
-            value = payload.get(key)
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{key} must be a non-empty string")
-            values[key] = value.strip()
-        return cls(platform, values["name"], values["address"], values["identifier"])
-
-
-def read_options(path: Path = OPTIONS) -> dict[str, object]:
-    if not path.exists():
-        return {}
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise TypeError("Options must be an object")
-    return value
-
-
-def options_with_selection(
-    options: dict[str, object], selection: Selection
-) -> dict[str, object]:
-    updated = dict(options)
-    updated.pop("enable_single_scan", None)
-    updated.update(
-        target_platform=selection.platform,
-        target_name=selection.name,
-        target_identifier=selection.identifier,
-        target_address=selection.address,
-    )
-    return updated
-
-
-def public_target_options(options: dict[str, object]) -> dict[str, str]:
-    return {
-        "target_platform": str(options.get("target_platform", "apple_tv")),
-        "target_name": str(options.get("target_name", "")),
-        "target_identifier": str(options.get("target_identifier", "")),
-        "target_address": str(options.get("target_address", "")),
-    }
-
-
-async def save_supervisor_options(options: dict[str, object]) -> None:
-    token = os.environ.get("SUPERVISOR_TOKEN")
-    if not token:
-        raise RuntimeError("Supervisor token is unavailable")
-    url = os.environ.get("SUPERVISOR_URL", "http://supervisor") + "/addons/self/options"
-    timeout = ClientTimeout(total=15)
-    async with (
-        ClientSession(timeout=timeout) as session,
-        session.post(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            json={"options": options},
-        ) as response,
-    ):
-        if response.status >= 300:
-            raise RuntimeError(
-                f"Supervisor rejected the configuration ({response.status})"
-            )
+async def _save_target(target: SavedTarget, path: Path) -> None:
+    await asyncio.to_thread(target.save, path)
 
 
 @web.middleware
@@ -380,9 +310,11 @@ async def handle_index(request: web.Request) -> web.Response:
 
 
 async def handle_config(request: web.Request) -> web.Response:
-    return web.json_response(
-        public_target_options(read_options(request.app[OPTIONS_PATH_KEY]))
-    )
+    try:
+        target = SavedTarget.load(request.app[TARGET_PATH_KEY])
+        return web.json_response(target.as_public_payload())
+    except FileNotFoundError:
+        return web.json_response({"target_identifier": ""})
 
 
 async def handle_discover(request: web.Request) -> web.Response:
@@ -405,7 +337,7 @@ async def handle_discover(request: web.Request) -> web.Response:
 
 async def handle_select(request: web.Request) -> web.Response:
     try:
-        selection = Selection.from_payload(await request.json())
+        selection = SavedTarget.from_payload(await request.json())
         candidates = request.app[DISCOVERED_KEY].get(selection.platform, [])
         if not any(
             device.name == selection.name
@@ -414,10 +346,7 @@ async def handle_select(request: web.Request) -> web.Response:
             for device in candidates
         ):
             raise ValueError("Select a device from the current discovery list")
-        options = options_with_selection(
-            read_options(request.app[OPTIONS_PATH_KEY]), selection
-        )
-        await request.app[SAVE_FUNC_KEY](options)
+        await request.app[SAVE_FUNC_KEY](selection, request.app[TARGET_PATH_KEY])
         LOG.info(
             "Saved one target: platform=%s name=%r address=%s identifier=%r",
             selection.platform,
@@ -425,7 +354,7 @@ async def handle_select(request: web.Request) -> web.Response:
             selection.address,
             selection.identifier,
         )
-        return web.json_response({"options": public_target_options(options)})
+        return web.json_response({"target": selection.as_public_payload()})
     except (TypeError, ValueError) as error:
         return web.json_response({"error": str(error)}, status=400)
     except Exception:
@@ -438,7 +367,7 @@ async def handle_select(request: web.Request) -> web.Response:
 def _pairing_probe(request: web.Request):
     probe = request.app[PAIRING_PROBE_KEY]
     if probe is None:
-        raise web.HTTPServiceUnavailable(text="Pairing test is unavailable")
+        raise web.HTTPServiceUnavailable(text="Phone pairing is unavailable")
     return probe
 
 
@@ -505,18 +434,18 @@ async def handle_apple_tv_pair_cancel(request: web.Request) -> web.Response:
 
 def create_app(
     *,
-    options_path: Path = OPTIONS,
+    target_path: Path = TARGET,
     allowed_remote: str | None = SUPERVISOR_REMOTE,
     discover_func=discover_devices,
-    save_func=save_supervisor_options,
+    save_func=None,
     pairing_probe=None,
     apple_tv_controller=None,
 ) -> web.Application:
     app = web.Application(middlewares=[supervisor_only])
     app[ALLOWED_REMOTE_KEY] = allowed_remote
-    app[OPTIONS_PATH_KEY] = options_path
+    app[TARGET_PATH_KEY] = target_path
     app[DISCOVER_FUNC_KEY] = discover_func
-    app[SAVE_FUNC_KEY] = save_func
+    app[SAVE_FUNC_KEY] = save_func or _save_target
     app[DISCOVERED_KEY] = {}
     app[PAIRING_PROBE_KEY] = pairing_probe
     app[APPLE_TV_KEY] = apple_tv_controller
