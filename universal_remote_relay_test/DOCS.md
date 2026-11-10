@@ -1,4 +1,4 @@
-# Universal Remote Relay (Experimental) v0.4.4
+# Universal Remote Relay v0.4.5
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
@@ -68,7 +68,7 @@ written to the log.
 - The Samsung S24 Ultra has physically completed initial pairing and reconnect
   after sleep.
 - Apple TV Companion pairing and Back forwarding are physically verified.
-- D-pad, Select, Home, and Power forwarding require the v0.4.4 physical
+- D-pad, Select, Home, and Power forwarding require the v0.4.5 physical
   acceptance test.
 - Power sleeps an awake Apple TV and wakes a sleeping Apple TV using its
   reported power state. If that state is unknown, an error is shown so you can
