@@ -7,11 +7,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 APP = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP))
 
 from apple_tv import AppleTVController, AppleTVRelayError
+from pyatv.const import PowerState
 
 
 class FakeStorage:
@@ -79,6 +81,10 @@ class FakeRemote:
 class FakeConnection:
     def __init__(self):
         self.remote_control = FakeRemote()
+        self.power = type("Power", (), {})()
+        self.power.power_state = PowerState.On
+        self.power.turn_on = AsyncMock()
+        self.power.turn_off = AsyncMock()
         self.closed = False
 
     def close(self):
@@ -244,8 +250,71 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_button_is_not_sent(self):
         with self.assertRaisesRegex(AppleTVRelayError, "Unsupported"):
-            await self.controller.send_key("POWER")
+            await self.controller.send_key("VOLUME_UP")
         self.assertEqual(self.connection.remote_control.actions, [])
+
+    async def test_power_sleeps_an_awake_apple_tv(self):
+        await self.pair_controller()
+        self.assertEqual(await self.controller.send_key("POWER"), "turn_off")
+        self.connection.power.turn_off.assert_awaited_once_with()
+        self.connection.power.turn_on.assert_not_awaited()
+
+    async def test_tv_power_wakes_a_sleeping_apple_tv(self):
+        await self.pair_controller()
+        self.connection.power.power_state = PowerState.Off
+        self.assertEqual(await self.controller.send_key("TV_POWER"), "turn_on")
+        self.connection.power.turn_on.assert_awaited_once_with()
+        self.connection.power.turn_off.assert_not_awaited()
+
+    async def test_unknown_power_state_does_not_guess(self):
+        await self.pair_controller()
+        self.connection.power.power_state = PowerState.Unknown
+        with self.assertRaisesRegex(AppleTVRelayError, "power state is unknown"):
+            await self.controller.send_key("POWER")
+        self.connection.power.turn_on.assert_not_awaited()
+        self.connection.power.turn_off.assert_not_awaited()
+
+    async def test_power_retry_does_not_reverse_a_successful_sleep(self):
+        await self.pair_controller()
+
+        async def sleep_then_disconnect():
+            self.connection.power.power_state = PowerState.Off
+            raise OSError("connection lost after command")
+
+        calls = 0
+
+        async def sleep():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                await sleep_then_disconnect()
+
+        self.connection.power.turn_off.side_effect = sleep
+        self.assertEqual(await self.controller.send_key("POWER"), "turn_off")
+        self.assertEqual(self.connection.power.turn_off.await_count, 2)
+        self.connection.power.turn_on.assert_not_awaited()
+
+    async def test_power_requires_pairing(self):
+        with self.assertRaisesRegex(AppleTVRelayError, "Pair the selected Apple TV"):
+            await self.controller.send_key("POWER")
+        self.connection.power.turn_on.assert_not_awaited()
+        self.connection.power.turn_off.assert_not_awaited()
+
+    async def test_changed_target_cannot_use_previous_connection(self):
+        await self.pair_controller()
+        await self.controller.send_key("DPAD_UP")
+        payload = json.loads(self.target.read_text(encoding="utf-8"))
+        payload["identifier"] = "new-id"
+        self.target.write_text(json.dumps(payload), encoding="utf-8")
+        self.controller._save_paired_target_identifier("new-id")
+        new_connection = FakeConnection()
+        self.controller.connect_func = AsyncMock(return_value=new_connection)
+
+        await self.controller.send_key("POWER")
+
+        self.assertTrue(self.connection.closed)
+        self.connection.power.turn_off.assert_not_awaited()
+        new_connection.power.turn_off.assert_awaited_once_with()
 
     async def test_target_name_can_change_without_changing_identity(self):
         await self.pair_controller()

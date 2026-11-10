@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.4.3
+## Experimental release: v0.4.4
 
-v0.4.3 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.4 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -49,11 +49,14 @@ selection.
 - Persistent phone reconnect after sleep: physically verified.
 - Apple TV Companion pairing and Back command forwarding: physically verified.
 - D-pad, Select, and Home release-event forwarding: implemented and simulated;
-  physical v0.4.3 verification is still required.
+  physical verification is still required.
+- Power: implemented and tested with simulated devices; physical sleep/wake
+  verification is required. It toggles known Apple TV power state through
+  pyatv; an unknown state produces an actionable error instead of guessing.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.4.3 stays experimental until the expanded navigation mapping,
+v0.4.4 stays experimental until power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
 
@@ -70,7 +73,7 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay (Experimental) v0.4.3**.
+1. Install and start **Universal Remote Relay (Experimental) v0.4.4**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.
@@ -83,6 +86,9 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
    every button produces exactly one Apple TV action.
 8. Let the phone sleep, wake it, reopen the remote, and confirm it reconnects
    without another pairing code.
+9. While the Apple TV is awake, tap Power once to sleep it, wait for sleep,
+   then tap Power again to wake it. Confirm the Web UI records `turn_off` and
+   `turn_on`. Television power also depends on your HDMI-CEC setup.
 
 The devices must be on the same trusted local network. TCP 6466 stays local to
 the LAN for trusted phone reconnects. TCP 6467 exists only during the bounded

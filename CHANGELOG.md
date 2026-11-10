@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.4 (Experimental) — 2026-11-10
+
+- Add POWER and TV_POWER forwarding through pyatv's power interface, selecting
+  sleep or wake from the reported Apple TV state. Unknown state is reported
+  without guessing; retries repeat the same explicit operation.
+- Discard a previous target's cached connection before controlling another
+  selected Apple TV.
+- Serialize Web UI target saves, reject invalid platform types cleanly, and
+  return a recoverable JSON error for damaged saved-target data.
+- Preserve incomplete legacy options for recovery when migration cannot finish.
+- Test power sleep/wake, unknown state, pairing enforcement, transport retry,
+  target changes, phone power release events, and the installed Companion
+  provider's actual Wake/Sleep command mapping.
+
+Physical S24 Ultra power-button and Apple TV sleep/wake testing remains pending.
+
 ## 0.4.3 (Experimental) — 2026-11-08
 
 - Translate the Samsung phone's `START_LONG`/`END_LONG` navigation events into

@@ -14,7 +14,7 @@ from selector import create_app
 from target_store import LEGACY_OPTION_KEYS, migrate_legacy_target, read_options
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.4.3"
+VERSION = "0.4.4"
 LOG_LEVELS = {"debug", "info", "warning", "error"}
 
 
@@ -119,7 +119,10 @@ async def run() -> None:
     )
     if migrate_legacy_target(options_path, target_path):
         LOG.info("Migrated the saved Web UI target to protected add-on data")
-    await clean_legacy_options(options)
+    if target_path.exists() or not options.get("target_identifier"):
+        await clean_legacy_options(options)
+    else:
+        LOG.warning("Legacy target is incomplete; retained options for recovery")
     LOG.info(
         "Universal Remote Relay v%s; web UI discovery only; target configured=%s",
         VERSION,

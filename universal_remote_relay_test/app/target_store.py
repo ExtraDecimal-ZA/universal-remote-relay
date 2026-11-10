@@ -31,7 +31,7 @@ class SavedTarget:
         if not isinstance(payload, dict):
             raise TypeError("Selection must be an object")
         platform = payload.get("platform")
-        if platform not in SUPPORTED_PLATFORMS:
+        if not isinstance(platform, str) or platform not in SUPPORTED_PLATFORMS:
             raise ValueError("platform must be apple_tv or android_tv")
         values: dict[str, str] = {}
         for key in ("name", "address", "identifier"):
