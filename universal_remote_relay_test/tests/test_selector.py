@@ -173,6 +173,16 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 400)
         self.assertIsNone(self.saved)
 
+    async def test_rejects_non_string_platform_without_server_error(self):
+        response = await self.client.post("/api/select", json={"platform": []})
+        self.assertEqual(response.status, 400)
+
+    async def test_corrupt_target_returns_actionable_json_error(self):
+        self.target_path.write_text("broken json", encoding="utf-8")
+        response = await self.client.get("/api/config")
+        self.assertEqual(response.status, 409)
+        self.assertIn("select the target again", (await response.json())["error"])
+
     async def test_pairing_probe_is_started_and_stopped_through_private_api(self):
         status = await self.client.get("/api/pairing/status")
         self.assertFalse((await status.json())["pairing_active"])

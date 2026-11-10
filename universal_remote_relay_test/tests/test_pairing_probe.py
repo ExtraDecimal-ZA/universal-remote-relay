@@ -351,7 +351,7 @@ class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(forwarded, [])
         self.assertEqual(probe.status()["state"], "command_pending")
 
-    async def test_unsupported_power_button_is_not_forwarded(self):
+    async def test_power_press_release_is_forwarded_once(self):
         forwarded = []
 
         async def send(key):
@@ -362,12 +362,15 @@ class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
         probe._loop = asyncio.get_running_loop()
         message = RemoteMessage()
         message.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_POWER
-        message.remote_key_inject.direction = RemoteDirection.END_LONG
-        probe._handle_remote_message(message)
-        await asyncio.sleep(0)
+        for direction in (RemoteDirection.START_LONG, RemoteDirection.END_LONG):
+            message.remote_key_inject.direction = direction
+            probe._handle_remote_message(message)
+        for _ in range(20):
+            if forwarded:
+                break
+            await asyncio.sleep(0.01)
 
-        self.assertEqual(forwarded, [])
-        self.assertEqual(probe.status()["state"], "command_ignored")
+        self.assertEqual(forwarded, ["POWER"])
 
     async def test_text_input_is_captured_but_never_forwarded(self):
         forwarded = []

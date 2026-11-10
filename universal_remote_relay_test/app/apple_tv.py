@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import pyatv
-from pyatv.const import Protocol
+from pyatv.const import PowerState, Protocol
 from pyatv.storage.file_storage import FileStorage
 from target_store import SavedTarget
 
@@ -31,6 +31,8 @@ COMMAND_MAP = {
     "MEDIA_PLAY_PAUSE": "play_pause",
     "MEDIA_PLAY": "play",
     "MEDIA_PAUSE": "pause",
+    "POWER": "power_toggle",
+    "TV_POWER": "power_toggle",
 }
 
 
@@ -85,6 +87,7 @@ class AppleTVController:
         self._pairing = None
         self._pairing_target: SavedTarget | None = None
         self._connection = None
+        self._connection_identifier: str | None = None
         self._state = AppleTVState()
         self._pairing_lock = asyncio.Lock()
         self._command_lock = asyncio.Lock()
@@ -256,25 +259,45 @@ class AppleTVController:
         if action is None:
             raise AppleTVRelayError(f"Unsupported remote button: {key.strip().upper()}")
         await self.initialize()
-        target = load_apple_target(self.target_path)
-        if not self._is_paired_target(target):
-            raise AppleTVRelayError(
-                "Pair the selected Apple TV in the Web UI before sending commands."
-            )
         async with self._command_lock:
+            target = load_apple_target(self.target_path)
+            if not self._is_paired_target(target):
+                raise AppleTVRelayError(
+                    "Pair the selected Apple TV in the Web UI before sending commands."
+                )
+            if self._connection_identifier != target.identifier:
+                await self._disconnect()
+            # Resolve a toggle once. A failed transport must retry the same
+            # explicit operation, never reverse a possibly successful command.
+            resolved_action = action
             for attempt in range(2):
                 try:
                     connection = await self._ensure_connected()
-                    method = getattr(connection.remote_control, action)
+                    if resolved_action == "power_toggle":
+                        power_state = connection.power.power_state
+                        if power_state == PowerState.On:
+                            resolved_action = "turn_off"
+                        elif power_state == PowerState.Off:
+                            resolved_action = "turn_on"
+                        else:
+                            raise AppleTVRelayError(
+                                "Apple TV power state is unknown; try again shortly."
+                            )
+                    interface = (
+                        connection.power
+                        if resolved_action in {"turn_on", "turn_off"}
+                        else connection.remote_control
+                    )
+                    method = getattr(interface, resolved_action)
                     await method()
                     self._state = replace(
                         self._state,
                         state="command_sent",
-                        message=f"Sent {action} to the Apple TV.",
+                        message=f"Sent {resolved_action} to the Apple TV.",
                         connected=True,
-                        last_action=action,
+                        last_action=resolved_action,
                     )
-                    return action
+                    return resolved_action
                 except AppleTVRelayError:
                     raise
                 except Exception as error:
@@ -352,6 +375,7 @@ class AppleTVController:
             paired=True,
             connected=True,
         )
+        self._connection_identifier = target.identifier
         return self._connection
 
     async def _disconnect(self) -> None:
@@ -359,6 +383,7 @@ class AppleTVController:
             return
         pending = self._connection.close()
         self._connection = None
+        self._connection_identifier = None
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._state = replace(self._state, connected=False)

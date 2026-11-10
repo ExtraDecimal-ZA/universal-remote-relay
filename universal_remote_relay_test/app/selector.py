@@ -19,6 +19,7 @@ ALLOWED_REMOTE_KEY = web.AppKey("allowed_remote", str | None)
 TARGET_PATH_KEY = web.AppKey("target_path", Path)
 DISCOVER_FUNC_KEY = web.AppKey("discover_func", object)
 SAVE_FUNC_KEY = web.AppKey("save_func", object)
+SAVE_LOCK_KEY = web.AppKey("save_lock", asyncio.Lock)
 DISCOVERED_KEY = web.AppKey("discovered", dict)
 PAIRING_PROBE_KEY = web.AppKey("pairing_probe", object)
 APPLE_TV_KEY = web.AppKey("apple_tv_controller", object)
@@ -87,7 +88,7 @@ INDEX_HTML = """<!doctype html>
     <div id="pair-code" class="code" hidden></div>
     <div id="pair-detail" class="muted"></div>
   </section>
-  <p class="muted">Only allow-listed navigation and playback buttons are forwarded. Text and app-link contents remain blocked.</p>
+  <p class="muted">Navigation, playback, and Power are forwarded. Power sleeps an awake Apple TV or wakes a sleeping one when its power state is known. Text and app-link contents remain blocked.</p>
 </main>
 <script>
 const platform = document.getElementById('platform');
@@ -315,6 +316,10 @@ async def handle_config(request: web.Request) -> web.Response:
         return web.json_response(target.as_public_payload())
     except FileNotFoundError:
         return web.json_response({"target_identifier": ""})
+    except (OSError, TypeError, ValueError):
+        return web.json_response(
+            {"error": "Saved target is invalid; select the target again."}, status=409
+        )
 
 
 async def handle_discover(request: web.Request) -> web.Response:
@@ -346,7 +351,8 @@ async def handle_select(request: web.Request) -> web.Response:
             for device in candidates
         ):
             raise ValueError("Select a device from the current discovery list")
-        await request.app[SAVE_FUNC_KEY](selection, request.app[TARGET_PATH_KEY])
+        async with request.app[SAVE_LOCK_KEY]:
+            await request.app[SAVE_FUNC_KEY](selection, request.app[TARGET_PATH_KEY])
         LOG.info(
             "Saved one target: platform=%s name=%r address=%s identifier=%r",
             selection.platform,
@@ -446,6 +452,7 @@ def create_app(
     app[TARGET_PATH_KEY] = target_path
     app[DISCOVER_FUNC_KEY] = discover_func
     app[SAVE_FUNC_KEY] = save_func or _save_target
+    app[SAVE_LOCK_KEY] = asyncio.Lock()
     app[DISCOVERED_KEY] = {}
     app[PAIRING_PROBE_KEY] = pairing_probe
     app[APPLE_TV_KEY] = apple_tv_controller
