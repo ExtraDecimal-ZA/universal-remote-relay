@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Current release: v0.4.5
+## Current release: v0.4.6
 
-v0.4.5 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.6 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -28,7 +28,17 @@ The selector uses Home Assistant Ingress with a Supervisor-assigned dynamic
 port. It does not publish a host port, require a separate login, or return the
 Supervisor token to the browser.
 
-The trusted phone receiver now remains advertised while the add-on is running,
+Multiple Google TV phone remotes can be paired and remembered independently.
+Open a new pairing window for each phone. The Web UI lists saved phone remotes
+and can remove one without affecting the others. The existing v0.4.5 pairing
+is migrated automatically. All phones control the same selected Apple TV;
+commands are serialized. Physical two-phone acceptance testing remains pending.
+
+Xiaomi Bluetooth handheld remotes use a different input path; this version
+does not provide Bluetooth pairing or button capture. See the
+[Bluetooth test plan](BLUETOOTH_REMOTES.md) for the remaining hardware checks.
+
+The trusted phone receiver remains advertised while the add-on is running,
 so a paired phone can reconnect after sleeping. TCP 6467 is opened only during
 a ten-minute new-phone pairing window; TCP 6466 remains available for a trusted
 phone's command connection. The phone certificate and relay identity persist
@@ -56,7 +66,7 @@ selection.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.4.5 stays experimental until power, the expanded navigation mapping,
+v0.4.6 stays experimental until multiple-phone operation, power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
 
@@ -73,7 +83,7 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay v0.4.5**.
+1. Install and start **Universal Remote Relay v0.4.6**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.

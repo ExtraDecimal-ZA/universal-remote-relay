@@ -30,6 +30,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from OpenSSL import SSL, crypto
+from remote_store import RemoteStore
 from zeroconf import IPVersion, ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
@@ -252,6 +253,11 @@ class PairingProbe:
         self.cert_path = data_dir / "relay_cert.pem"
         self.key_path = data_dir / "relay_key.pem"
         self.client_cert_path = data_dir / "paired_phone_cert.pem"
+        self.remote_store = RemoteStore(
+            data_dir / "paired_remotes.json", self.client_cert_path
+        )
+        self._trust_lock = threading.RLock()
+        self._remote_sessions: dict[socket.socket, str] = {}
         self._state = ProbeState()
         self._state_lock = threading.Lock()
         self._session_lock = threading.Lock()
@@ -275,6 +281,9 @@ class PairingProbe:
         """Return authenticated-UI state without exposing certificates or keys."""
         with self._state_lock:
             state = self._state
+        with self._trust_lock:
+            remotes = self.remote_store.public_list()
+            connected_count = len(self._remote_sessions)
         remaining = (
             max(0, int(state.pairing_expires_at - time.monotonic()))
             if state.pairing_expires_at
@@ -285,8 +294,10 @@ class PairingProbe:
             "message": state.message,
             "pairing_code": state.pairing_code,
             "client_name": state.client_name,
-            "paired": state.paired,
-            "remote_connected": state.remote_connected,
+            "paired": bool(remotes),
+            "remote_connected": connected_count > 0,
+            "connected_remotes": connected_count,
+            "remotes": remotes,
             "last_command": state.last_command,
             "seconds_remaining": remaining,
             "active": self._active,
@@ -542,7 +553,10 @@ class PairingProbe:
                 return True
             if depth != 0:
                 return True
-            return _certificate_fingerprint(certificate) in self._trusted_fingerprints
+            with self._trust_lock:
+                return (
+                    _certificate_fingerprint(certificate) in self._trusted_fingerprints
+                )
 
         context.set_verify(SSL.VERIFY_PEER | SSL.VERIFY_FAIL_IF_NO_PEER_CERT, verify)
         context.set_verify_depth(2)
@@ -638,7 +652,7 @@ class PairingProbe:
                 return
 
             fingerprint = hashlib.sha256(peer_der).hexdigest()
-            self._save_trusted_phone(peer, fingerprint)
+            self._save_trusted_phone(peer, fingerprint, client_name)
             self._pairing_enabled = False
             if self._loop is not None:
                 self._loop.call_soon_threadsafe(self._close_pairing_after_success)
@@ -678,26 +692,35 @@ class PairingProbe:
     def _write_polo(connection: SSL.Connection, message: OuterMessage) -> None:
         write_delimited(connection, message.SerializeToString())
 
-    def _save_trusted_phone(self, certificate: crypto.X509, fingerprint: str) -> None:
-        if not self._pairing_enabled:
-            raise PairingProbeError(
-                "Pairing window closed before phone trust could be saved"
-            )
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        temporary = self.client_cert_path.with_name(f"{self.client_cert_path.name}.tmp")
-        temporary.write_bytes(crypto.dump_certificate(crypto.FILETYPE_PEM, certificate))
-        os.chmod(temporary, 0o600)
-        temporary.replace(self.client_cert_path)
-        self._trusted_fingerprints = {fingerprint}
+    def _save_trusted_phone(
+        self, certificate: crypto.X509, fingerprint: str, name: str = "Phone remote"
+    ) -> None:
+        with self._trust_lock:
+            if not self._pairing_enabled:
+                raise PairingProbeError(
+                    "Pairing window closed before phone trust could be saved"
+                )
+            if fingerprint != _certificate_fingerprint(certificate):
+                raise PairingProbeError("Phone certificate identity does not match")
+            self.remote_store.add(certificate, name)
+            self._trusted_fingerprints = set(self.remote_store.records)
 
     def _load_trusted_phone(self) -> None:
-        if not self.client_cert_path.exists():
-            self._trusted_fingerprints.clear()
-            return
-        certificate = crypto.load_certificate(
-            crypto.FILETYPE_PEM, self.client_cert_path.read_bytes()
-        )
-        self._trusted_fingerprints = {_certificate_fingerprint(certificate)}
+        with self._trust_lock:
+            self.remote_store.load()
+            self._trusted_fingerprints = set(self.remote_store.records)
+
+    async def remove_remote(self, identifier: str) -> None:
+        await asyncio.to_thread(self._remove_remote, identifier)
+
+    def _remove_remote(self, identifier: str) -> None:
+        with self._trust_lock:
+            self.remote_store.remove(identifier)
+            self._trusted_fingerprints = set(self.remote_store.records)
+            for active_socket, remote_id in list(self._remote_sessions.items()):
+                if remote_id == identifier:
+                    with suppress(OSError):
+                        active_socket.shutdown(socket.SHUT_RDWR)
 
     def _close_pairing_after_success(self) -> None:
         asyncio.create_task(
@@ -713,6 +736,14 @@ class PairingProbe:
             self._server_context(pairing=False), client_socket
         )
         try:
+            peer = connection.get_peer_certificate()
+            if peer is None:
+                raise PairingProbeError("Remote certificate is missing")
+            fingerprint = _certificate_fingerprint(peer)
+            with self._trust_lock:
+                if fingerprint not in self._trusted_fingerprints:
+                    raise PairingProbeError("Remote is no longer trusted")
+                self._remote_sessions[client_socket] = fingerprint
             self._update_state(
                 state="remote_connected",
                 message="Phone remote connected. Commands will be sent to Apple TV.",
@@ -730,15 +761,25 @@ class PairingProbe:
                     continue
                 except (EOFError, SSL.Error):
                     break
-                self._handle_remote_message(message)
+                with self._trust_lock:
+                    if fingerprint not in self._trusted_fingerprints:
+                        break
+                    self._handle_remote_message(message)
         finally:
+            with self._trust_lock:
+                self._remote_sessions.pop(client_socket, None)
+                still_connected = bool(self._remote_sessions)
             with suppress(Exception):
                 connection.shutdown()
             connection.close()
             self._update_state(
-                state="receiver_ready",
-                message="Phone disconnected; waiting for its trusted reconnect.",
-                remote_connected=False,
+                state="remote_connected" if still_connected else "receiver_ready",
+                message=(
+                    "A phone disconnected; other remotes remain connected."
+                    if still_connected
+                    else "Phone disconnected; waiting for its trusted reconnect."
+                ),
+                remote_connected=still_connected,
             )
 
     def _send_remote_configuration(self, connection: SSL.Connection) -> None:
@@ -750,7 +791,7 @@ class PairingProbe:
         info.unknown1 = 1
         info.unknown2 = "1"
         info.package_name = "com.google.android.tv.remote.service"
-        info.app_version = "0.4.5"
+        info.app_version = "0.4.6"
         write_delimited(connection, message.SerializeToString())
 
         active = RemoteMessage()

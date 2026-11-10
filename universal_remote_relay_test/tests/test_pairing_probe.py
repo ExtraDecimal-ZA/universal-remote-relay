@@ -217,7 +217,7 @@ class PairingRoundTripTest(unittest.TestCase):
         server.join(timeout=5)
         self.assertFalse(server.is_alive())
         self.assertTrue(self.probe.status()["paired"])
-        self.assertTrue(self.probe.client_cert_path.exists())
+        self.assertTrue(self.probe.remote_store.path.exists())
 
         replacement = PairingProbe(data_dir=self.root / "relay")
         replacement._load_trusted_phone()
@@ -234,8 +234,93 @@ class PairingRoundTripTest(unittest.TestCase):
         )
         self.probe._active = False
 
+    def test_two_phones_pair_and_first_reconnects_after_second_and_restart(self):
+        self.test_phone_pairs_once_and_reconnects_with_saved_trust()
+        first_cert, first_key = self.client_cert, self.client_key
+        self.client_cert = self.root / "second.pem"
+        self.client_key = self.root / "second.key"
+        _generate_identity(self.client_cert, self.client_key, "Second phone")
+        self.test_phone_pairs_once_and_reconnects_with_saved_trust()
+        self.assertEqual(len(self.probe.status()["remotes"]), 2)
+        self.client_cert, self.client_key = first_cert, first_key
+        self.probe._active = True
+        self._run_remote_command(RemoteKeyCode.KEYCODE_DPAD_UP, "DPAD_UP (SHORT)")
+        self.probe._active = False
+
+    def test_two_live_tls_sessions_and_one_disconnect_preserves_other(self):
+        self.test_phone_pairs_once_and_reconnects_with_saved_trust()
+        first = (self.client_cert, self.client_key)
+        self.client_cert, self.client_key = self.root / "two.pem", self.root / "two.key"
+        _generate_identity(self.client_cert, self.client_key, "Second phone")
+        self.test_phone_pairs_once_and_reconnects_with_saved_trust()
+        identities = [first, (self.client_cert, self.client_key)]
+        connections, threads = [], []
+        self.probe._active = True
+        try:
+            for cert, key in identities:
+                server_socket, client_socket = socket.socketpair()
+                thread = threading.Thread(
+                    target=self.probe._run_remote_session,
+                    args=(server_socket, None),
+                    daemon=True,
+                )
+                thread.start()
+                threads.append(thread)
+                connection = _client_connection(client_socket, cert, key)
+                connections.append(connection)
+                for _ in range(3):
+                    read_delimited(connection)
+            self.assertEqual(self.probe.status()["connected_remotes"], 2)
+            connections[0].close()
+            threads[0].join(timeout=5)
+            self.assertFalse(threads[0].is_alive())
+            self.assertEqual(self.probe.status()["connected_remotes"], 1)
+            self.assertTrue(self.probe.status()["remote_connected"])
+            message = RemoteMessage()
+            message.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_HOME
+            message.remote_key_inject.direction = RemoteDirection.SHORT
+            write_delimited(connections[1], message.SerializeToString())
+            deadline = time.monotonic() + 2
+            while self.probe.status()["last_command"] != "HOME (SHORT)":
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+        finally:
+            self.probe._active = False
+            for connection in connections:
+                connection.close()
+            for thread in threads:
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+
 
 class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
+    async def test_removing_remote_closes_only_its_active_connection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cert_path, key_path = root / "phone.pem", root / "phone.key"
+            _generate_identity(cert_path, key_path, "Phone")
+            cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_path.read_bytes())
+            probe = PairingProbe(data_dir=root / "relay")
+            identifier = probe.remote_store.add(cert, "Phone")
+            probe._trusted_fingerprints = {identifier}
+            removed_socket, removed_peer = socket.socketpair()
+            other_socket, other_peer = socket.socketpair()
+            try:
+                probe._remote_sessions = {
+                    removed_socket: identifier,
+                    other_socket: "other",
+                }
+                await probe.remove_remote(identifier)
+                removed_peer.settimeout(1)
+                self.assertEqual(removed_peer.recv(1), b"")
+                other_peer.sendall(b"x")
+                self.assertEqual(other_socket.recv(1), b"x")
+                self.assertNotIn(identifier, probe._trusted_fingerprints)
+                self.assertEqual(probe.status()["remotes"], [])
+            finally:
+                for sock in (removed_socket, removed_peer, other_socket, other_peer):
+                    sock.close()
+
     async def test_closing_pairing_window_keeps_receiver_available(self):
         probe = PairingProbe(pairing_port=0)
         probe._active = True

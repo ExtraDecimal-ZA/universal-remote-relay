@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.6 — 2026-11-11
+
+- Save multiple Google TV phone remotes independently and migrate the previous
+  single-phone certificate without changing the relay identity.
+- List paired phone remotes in the private Web UI and remove individual remotes,
+  revoking their live connections while retaining all other pairings.
+- Preserve an authoritative empty list so a removed legacy phone cannot return
+  after restart. Save changes atomically before updating in-memory trust.
+- Report connected phone counts correctly when one of several phones disconnects.
+- Test two certificate/PIN pairings and reconnect after runtime replacement,
+  legacy migration, selective revocation, write failure, and Web UI removal.
+- Document the separate Xiaomi Bluetooth input proof of concept. Bluetooth
+  remote pairing is not implemented or claimed by this release.
+
+Physical two-phone and Xiaomi Bluetooth testing remain pending.
+
 ## 0.4.5 — 2026-11-10
 
 - Rename the displayed add-on and container title to Universal Remote Relay.
