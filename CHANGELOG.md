@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5 — 2026-11-10
+
+- Rename the displayed add-on and container title to Universal Remote Relay.
+- Retain the add-on slug, image location, configuration, and pairing data paths
+  so existing installations update in place. Runtime behavior is unchanged.
+- Keep experimental maturity metadata until physical acceptance is complete.
+
 ## 0.4.4 (Experimental) — 2026-11-10
 
 - Add POWER and TV_POWER forwarding through pyatv's power interface, selecting

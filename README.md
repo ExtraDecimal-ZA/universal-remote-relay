@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Experimental release: v0.4.4
+## Current release: v0.4.5
 
-v0.4.4 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.5 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -56,7 +56,7 @@ selection.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.4.4 stays experimental until power, the expanded navigation mapping,
+v0.4.5 stays experimental until power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
 
@@ -66,14 +66,14 @@ Add this repository to the Home Assistant Add-on Store:
 
 `https://github.com/ExtraDecimal-ZA/universal-remote-relay`
 
-Install **Universal Remote Relay (Experimental)** only after both GitHub
+Install **Universal Remote Relay** only after both GitHub
 workflows pass and the versioned ARM64 image is anonymously downloadable.
 
 Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay (Experimental) v0.4.4**.
+1. Install and start **Universal Remote Relay v0.4.5**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.
