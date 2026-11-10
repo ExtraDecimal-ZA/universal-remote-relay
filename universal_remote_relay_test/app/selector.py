@@ -87,6 +87,9 @@ INDEX_HTML = """<!doctype html>
     <div id="pair-status" class="muted">Loading phone receiver status…</div>
     <div id="pair-code" class="code" hidden></div>
     <div id="pair-detail" class="muted"></div>
+    <h3>Saved phone remotes</h3>
+    <p class="muted">Pair each Google TV phone app separately. All saved phones can control the selected Apple TV. Bluetooth handheld remotes need a separate input connection.</p>
+    <div id="remotes"></div>
   </section>
   <p class="muted">Navigation, playback, and Power are forwarded. Power sleeps an awake Apple TV or wakes a sleeping one when its power state is known. Text and app-link contents remain blocked.</p>
 </main>
@@ -100,6 +103,7 @@ const pairStop = document.getElementById('pair-stop');
 const pairStatus = document.getElementById('pair-status');
 const pairCode = document.getElementById('pair-code');
 const pairDetail = document.getElementById('pair-detail');
+const remotes = document.getElementById('remotes');
 const atvStart = document.getElementById('atv-start');
 const atvPinRow = document.getElementById('atv-pin-row');
 const atvPin = document.getElementById('atv-pin');
@@ -216,6 +220,25 @@ function showPairing(pairing) {
   if (pairing.last_command) details.push(`Last command: ${pairing.last_command}`);
   if (pairing.pairing_active) details.push(`${pairing.seconds_remaining}s remaining`);
   pairDetail.textContent = details.join(' · ');
+  const items = pairing.remotes || [];
+  remotes.replaceChildren();
+  if (!items.length) remotes.textContent = 'No saved phone remotes.';
+  for (const remote of items) {
+    const row = document.createElement('div');
+    const label = document.createElement('span');
+    label.textContent = `${remote.name} (${remote.id.slice(-6)}) `;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        await pairingRequest(`api/pairing/remotes/${encodeURIComponent(remote.id)}/remove`);
+      } catch (error) { showPairingError(error); }
+    });
+    row.append(label, remove);
+    remotes.append(row);
+  }
   if (pairing.active && !pairingPoll) pairingPoll = setInterval(loadPairing, 1000);
 }
 
@@ -397,6 +420,19 @@ async def handle_pairing_stop(request: web.Request) -> web.Response:
     return web.json_response(probe.status())
 
 
+async def handle_remote_remove(request: web.Request) -> web.Response:
+    probe = _pairing_probe(request)
+    try:
+        await probe.remove_remote(request.match_info["identifier"])
+        return web.json_response(probe.status())
+    except KeyError:
+        return web.json_response({"error": "Saved remote was not found."}, status=404)
+    except OSError:
+        return web.json_response(
+            {"error": "Could not remove the remote; try again."}, status=503
+        )
+
+
 def _apple_tv(request: web.Request):
     controller = request.app[APPLE_TV_KEY]
     if controller is None:
@@ -463,6 +499,7 @@ def create_app(
             web.post("/api/discover", handle_discover),
             web.post("/api/select", handle_select),
             web.get("/api/pairing/status", handle_pairing_status),
+            web.post("/api/pairing/remotes/{identifier}/remove", handle_remote_remove),
             web.post("/api/pairing/start", handle_pairing_start),
             web.post("/api/pairing/stop", handle_pairing_stop),
             web.get("/api/apple-tv/status", handle_apple_tv_status),

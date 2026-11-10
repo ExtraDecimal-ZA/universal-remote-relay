@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.5
+# Universal Remote Relay v0.4.6
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
@@ -53,9 +53,28 @@ selected physical Apple TV changes or Apple invalidates its credentials.
 The receiver advertisement and TCP 6466 remain active while the add-on runs so
 the trusted phone can reconnect. TCP 6467 is opened only during the ten-minute
 new-phone pairing window. No router forwarding or Internet-facing port is
-required. The relay identity and paired phone's public certificate remain in
+required. The relay identity and paired phones' public certificates remain in
 the protected `/data` directory, survive add-on image updates, and are never
 written to the log.
+
+## Save multiple phone remotes
+
+Open a separate ten-minute pairing window for each phone and pair it through
+its Google TV remote app. Adding another phone preserves existing pairings.
+All trusted phones control the same saved Apple TV; commands are serialized.
+The Web UI lists saved phone remotes with names and short identifiers. Select
+**Remove** to revoke a phone and disconnect its active sessions. Other phones
+remain trusted. Re-pair a removed phone through a new pairing window if needed.
+
+The previous single-phone certificate is imported automatically on upgrade.
+Phone trust is saved atomically in `/data/pairing_probe/paired_remotes.json`.
+After migration, even an empty remotes list is authoritative, so removing the
+last phone does not restore the previous pairing on restart.
+
+Xiaomi Bluetooth handheld remotes require a separate Bluetooth input path.
+Bluetooth pairing and button capture are not implemented in this release.
+The next hardware check is to identify the remote model, confirm Pi Bluetooth
+support, and verify navigation button events before enabling forwarding.
 
 ## Security and scope
 
@@ -68,7 +87,7 @@ written to the log.
 - The Samsung S24 Ultra has physically completed initial pairing and reconnect
   after sleep.
 - Apple TV Companion pairing and Back forwarding are physically verified.
-- D-pad, Select, Home, and Power forwarding require the v0.4.5 physical
+- D-pad, Select, Home, Power, and multiple-phone operation require physical
   acceptance test.
 - Power sleeps an awake Apple TV and wakes a sleeping Apple TV using its
   reported power state. If that state is unknown, an error is shown so you can

@@ -81,6 +81,10 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
             async def close_pairing_window(probe_self):
                 probe_self.pairing_active = False
 
+            async def remove_remote(probe_self, identifier):
+                if identifier != "known-id":
+                    raise KeyError(identifier)
+
         class AppleTVController:
             def __init__(controller_self):
                 controller_self.state = "not_paired"
@@ -192,6 +196,15 @@ class SelectorEndpointTest(unittest.IsolatedAsyncioTestCase):
         stopped = await self.client.post("/api/pairing/stop")
         self.assertEqual(stopped.status, 200)
         self.assertFalse((await stopped.json())["pairing_active"])
+
+    async def test_remove_remote_returns_updated_status(self):
+        response = await self.client.post("/api/pairing/remotes/known-id/remove")
+        self.assertEqual(response.status, 200)
+
+    async def test_remove_unknown_remote_returns_json_not_found(self):
+        response = await self.client.post("/api/pairing/remotes/unknown/remove")
+        self.assertEqual(response.status, 404)
+        self.assertIn("error", await response.json())
 
     async def test_apple_tv_pairing_is_completed_through_private_api(self):
         started = await self.client.post("/api/apple-tv/pair/start")
