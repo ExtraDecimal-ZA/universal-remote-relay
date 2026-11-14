@@ -111,6 +111,57 @@ class BluetoothLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.backend.stop_scan.assert_awaited_once()
         self.backend.close.assert_awaited_once()
 
+    async def test_other_adapter_devices_cannot_be_selected_from_this_scan(self):
+        other = "/org/bluez/hci1/dev_11_22_33_44_55_66"
+        self.backend.objects.return_value[other] = {
+            DEVICE: {"Alias": "Other adapter remote"}
+        }
+        await self.controller.scan()
+        status = await self.controller.status()
+        self.assertFalse(
+            next(item for item in status["devices"] if item["id"] == other)[
+                "selectable"
+            ]
+        )
+        with self.assertRaisesRegex(BluetoothError, "Scan first"):
+            await self.controller.pair(other)
+
+    async def test_expired_scan_selection_requires_a_new_scan(self):
+        await self.controller.scan()
+        await self.controller.stop_scan()
+        self.controller.selection_expires = asyncio.get_running_loop().time() - 1
+        with self.assertRaisesRegex(BluetoothError, "Scan first"):
+            await self.controller.pair(DEVICE_PATH)
+        self.backend.pair.assert_not_awaited()
+
+    async def test_failed_stop_disconnects_our_bus_and_allows_retry(self):
+        await self.controller.scan()
+        self.backend.stop_scan.side_effect = BluetoothError("host unavailable")
+        with self.assertRaisesRegex(BluetoothError, "connection was reset"):
+            await self.controller.stop_scan()
+        self.backend.close.assert_awaited_once()
+        self.assertFalse(self.controller.scan_adapter)
+        self.assertEqual(self.controller.state, "error")
+        self.backend.stop_scan.side_effect = None
+        await self.controller.scan()
+        self.assertTrue(self.controller.scan_adapter)
+
+    async def test_closed_controller_does_not_reopen_the_bus(self):
+        await self.controller.close()
+        await self.controller.close()
+        self.assertFalse((await self.controller.status())["available"])
+        self.backend.objects.assert_not_awaited()
+        self.backend.close.assert_awaited_once()
+        with self.assertRaisesRegex(BluetoothError, "stopped"):
+            await self.controller.scan()
+
+    async def test_adapter_power_loss_prevents_pairing_from_old_scan(self):
+        await self.controller.scan()
+        await self.controller.stop_scan()
+        self.backend.objects.return_value[ADAPTER_PATH][ADAPTER]["Powered"] = False
+        with self.assertRaisesRegex(BluetoothError, "no longer powered"):
+            await self.controller.pair(DEVICE_PATH)
+
 
 class BlueZAgentTest(unittest.TestCase):
     def setUp(self):
@@ -175,6 +226,74 @@ class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
             self.assertRaises(BluetoothError),
         ):
             await BlueZBackend().objects()
+
+    async def test_failed_connect_disconnects_and_forgets_candidate(self):
+        backend = BlueZBackend()
+        bus = Mock()
+        bus.connect = AsyncMock(side_effect=OSError("authentication failure"))
+        with (
+            patch("bluetooth_pairing.MessageBus", return_value=bus),
+            self.assertRaises(BluetoothError),
+        ):
+            await backend.objects()
+        bus.disconnect.assert_called_once()
+        self.assertIsNone(backend.bus)
+
+    async def test_cancelled_connect_disconnects_and_preserves_cancellation(self):
+        backend = BlueZBackend()
+        bus = Mock()
+        bus.connect = AsyncMock(side_effect=asyncio.CancelledError)
+        with (
+            patch("bluetooth_pairing.MessageBus", return_value=bus),
+            self.assertRaises(asyncio.CancelledError),
+        ):
+            await backend.objects()
+        bus.disconnect.assert_called_once()
+        self.assertIsNone(backend.bus)
+
+    async def test_close_disconnects_even_when_agent_cleanup_is_cancelled(self):
+        backend = BlueZBackend()
+        bus = backend.bus = Mock()
+        backend.agent_registered = True
+        backend.call = AsyncMock(side_effect=asyncio.CancelledError)
+        with self.assertRaises(asyncio.CancelledError):
+            await backend.close()
+        bus.disconnect.assert_called_once()
+        self.assertIsNone(backend.bus)
+        self.assertFalse(backend.agent_registered)
+
+    async def test_dead_connection_is_replaced_on_next_request(self):
+        backend = BlueZBackend()
+        dead = backend.bus = Mock(connected=False)
+        fresh = Mock(connected=True)
+        fresh.connect = AsyncMock(return_value=fresh)
+        fresh.call = AsyncMock(
+            return_value=Mock(message_type=MessageType.METHOD_RETURN, body=[{}])
+        )
+        with patch("bluetooth_pairing.MessageBus", return_value=fresh):
+            self.assertEqual(await backend.objects(), {})
+        dead.disconnect.assert_called_once()
+        self.assertIs(backend.bus, fresh)
+
+    async def test_bluez_restart_reregisters_agent_for_new_owner(self):
+        backend = BlueZBackend()
+        backend.bus = Mock()
+        backend.bus.call = AsyncMock(
+            side_effect=[
+                Mock(message_type=MessageType.METHOD_RETURN, body=[":1.5"]),
+                Mock(message_type=MessageType.METHOD_RETURN, body=[":1.8"]),
+            ]
+        )
+        backend.call = AsyncMock(return_value=[{}])
+        await backend.pair(DEVICE_PATH)
+        await backend.pair(DEVICE_PATH)
+        self.assertEqual(backend.owner, ":1.8")
+        registrations = [
+            call
+            for call in backend.call.await_args_list
+            if call.args[2] == "RegisterAgent"
+        ]
+        self.assertEqual(len(registrations), 2)
 
 
 class BluetoothEndpointTest(unittest.IsolatedAsyncioTestCase):

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.8 — 2026-11-14
+
+- Release failed/cancelled Bluetooth connections and always disconnect during
+  shutdown, even if unregistering the pairing agent is interrupted.
+- Recover from a dead host-bus connection and re-register the application
+  agent when BlueZ restarts, without replacing the host default agent.
+- Restrict pairing selections to the scanned adapter and expire them two
+  minutes after discovery; reject pairing after adapter power loss.
+- Reset this app's Bluetooth connection if stopping discovery fails, and
+  prevent status requests from reopening Bluetooth during shutdown.
+- Restore authoritative Web UI controls after request errors, keep controls
+  locked during active pairing, and resume polling after temporary failures.
+- Add lifecycle regression tests and executable browser-control tests to both
+  GitHub workflows. Bluetooth input forwarding remains a separate hardware gate.
+
 ## 0.4.7 — 2026-11-14
 
 - Add a bottom-of-page Bluetooth remote section with a manual 30-second scan,

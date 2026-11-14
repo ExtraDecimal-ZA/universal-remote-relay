@@ -127,8 +127,18 @@ const btStatus = document.getElementById('bt-status');
 const btDevices = document.getElementById('bt-devices');
 let btTimer = null;
 let btRequestBusy = false;
+let btLastState = null;
+
+function scheduleBluetoothPoll() {
+  if (btTimer) clearTimeout(btTimer);
+  btTimer = null;
+  if (btLastState && (btLastState.scanning || btLastState.pairing)) {
+    btTimer = setTimeout(() => { btTimer = null; loadBluetooth().catch(showBluetoothError); }, 2500);
+  }
+}
 
 function showBluetooth(state) {
+  btLastState = state;
   btScan.disabled = btRequestBusy || state.scanning || state.pairing;
   btStop.disabled = btRequestBusy || !state.scanning;
   btStatus.className = state.state === 'error' || !state.available ? 'error' : 'muted';
@@ -146,8 +156,7 @@ function showBluetooth(state) {
     row.append(label, button);
     btDevices.append(row);
   }
-  if (btTimer) clearTimeout(btTimer);
-  if (state.scanning || state.pairing) btTimer = setTimeout(() => loadBluetooth().catch(showBluetoothError), 2500);
+  scheduleBluetoothPoll();
 }
 
 async function loadBluetooth() {
@@ -158,10 +167,12 @@ async function loadBluetooth() {
 }
 
 async function bluetoothRequest(path, body = null) {
+  if (btRequestBusy) return;
   btRequestBusy = true;
   btScan.disabled = true;
   btStop.disabled = true;
   for (const button of btDevices.querySelectorAll('button')) button.disabled = true;
+  let failure = null;
   try {
     const response = await fetch(path, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -169,15 +180,21 @@ async function bluetoothRequest(path, body = null) {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Bluetooth request failed.');
-  } finally { btRequestBusy = false; }
-  await loadBluetooth();
+  } catch (error) { failure = error; }
+  finally {
+    btRequestBusy = false;
+    try { await loadBluetooth(); }
+    catch (error) { if (!failure) failure = error; }
+  }
+  if (failure) throw failure;
 }
 
 function showBluetoothError(error) {
   btStatus.className = 'error';
   btStatus.textContent = error.message;
-  btScan.disabled = false;
-  btStop.disabled = false;
+  btScan.disabled = btRequestBusy || Boolean(btLastState && (btLastState.scanning || btLastState.pairing));
+  btStop.disabled = btRequestBusy || !Boolean(btLastState && btLastState.scanning);
+  scheduleBluetoothPoll();
 }
 btScan.addEventListener('click', () => bluetoothRequest('api/bluetooth/scan').catch(showBluetoothError));
 btStop.addEventListener('click', () => bluetoothRequest('api/bluetooth/stop').catch(showBluetoothError));

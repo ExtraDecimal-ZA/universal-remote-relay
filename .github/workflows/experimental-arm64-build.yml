@@ -47,6 +47,7 @@ jobs:
           Path("/tmp/selector.js").write_text(match.group(1), encoding="utf-8")
           PY
           node --check /tmp/selector.js
+          node universal_remote_relay_test/tests/test_selector_ui.js
           bash -n universal_remote_relay_test/run.sh
       - name: Read image metadata
         id: image
