@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.7 — 2026-11-14
+
+- Add a bottom-of-page Bluetooth remote section with a manual 30-second scan,
+  device list, and Pair with Pi action using the host BlueZ service.
+- Add narrow host D-Bus access, without device mappings or full hardware access.
+- Register an application-scoped no-PIN pairing agent that authorizes only the
+  selected remote and never replaces the host's default agent.
+- Persist Bluetooth bonds through the Pi's Bluetooth service; keep existing
+  phone and Apple TV pairing files unchanged.
+- Report missing adapters, host access failures, pairing failures, and paired
+  versus connected state without blocking the existing relay.
+- Explicitly label Bluetooth button forwarding as not enabled. Real Xiaomi
+  pairing and input capture remain hardware acceptance tests.
+
 ## 0.4.6 — 2026-11-11
 
 - Save multiple Google TV phone remotes independently and migrate the previous

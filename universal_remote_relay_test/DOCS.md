@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.6
+# Universal Remote Relay v0.4.7
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
@@ -71,10 +71,25 @@ Phone trust is saved atomically in `/data/pairing_probe/paired_remotes.json`.
 After migration, even an empty remotes list is authoritative, so removing the
 last phone does not restore the previous pairing on restart.
 
-Xiaomi Bluetooth handheld remotes require a separate Bluetooth input path.
-Bluetooth pairing and button capture are not implemented in this release.
-The next hardware check is to identify the remote model, confirm Pi Bluetooth
-support, and verify navigation button events before enabling forwarding.
+## Add a Bluetooth remote
+
+1. Scroll to **Add Bluetooth remote** at the bottom of the Web UI.
+2. Put the Xiaomi remote in pairing mode, then select **Scan for Bluetooth devices**.
+3. Select **Pair with Pi** beside the correct name/address. The list may also
+   show devices previously seen by the host, so check the selected device.
+4. Wait for the pairing result. Scanning stops automatically after 30 seconds;
+   pairing can take up to a minute. The list shows paired and connected state.
+
+The Pi stores Bluetooth pairings through its existing BlueZ service. A new
+pairing helper is registered only for this app; the host's default agent is
+unchanged. Only no-PIN pairing is supported initially. The app does not enable
+an unpowered adapter automatically or remove existing host Bluetooth devices.
+If Bluetooth is unavailable or access is denied, the panel reports it while
+phone and Apple TV functions continue. No Bluetooth scan runs on startup.
+
+**Pairing does not enable Bluetooth button forwarding.** The next hardware
+gate is to pair the Xiaomi with the Pi, then inspect its navigation input
+events and make them available to the relay. Physical pairing is still pending.
 
 ## Security and scope
 

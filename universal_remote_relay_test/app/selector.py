@@ -8,6 +8,7 @@ from pathlib import Path
 
 from aiohttp import web
 from apple_tv import AppleTVRelayError
+from bluetooth_pairing import BluetoothError
 from discovery import discover_devices, normalize_platform
 from pairing_probe import PairingProbeError
 from target_store import SavedTarget
@@ -23,6 +24,7 @@ SAVE_LOCK_KEY = web.AppKey("save_lock", asyncio.Lock)
 DISCOVERED_KEY = web.AppKey("discovered", dict)
 PAIRING_PROBE_KEY = web.AppKey("pairing_probe", object)
 APPLE_TV_KEY = web.AppKey("apple_tv_controller", object)
+BLUETOOTH_KEY = web.AppKey("bluetooth_pairing", object)
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -92,6 +94,14 @@ INDEX_HTML = """<!doctype html>
     <div id="remotes"></div>
   </section>
   <p class="muted">Navigation, playback, and Power are forwarded. Power sleeps an awake Apple TV or wakes a sleeping one when its power state is known. Text and app-link contents remain blocked.</p>
+  <section>
+    <h2>Add Bluetooth remote</h2>
+    <p class="muted">Put your Xiaomi remote in Bluetooth pairing mode, then scan and select it below. Pairing is saved by the Pi. This step pairs the remote only; Bluetooth buttons do not control the Apple TV yet.</p>
+    <button id="bt-scan" type="button">Scan for Bluetooth devices</button>
+    <button id="bt-stop" type="button" disabled>Stop scan</button>
+    <div id="bt-status" class="muted">Checking Pi Bluetooth…</div>
+    <div id="bt-devices"></div>
+  </section>
 </main>
 <script>
 const platform = document.getElementById('platform');
@@ -111,6 +121,66 @@ const atvFinish = document.getElementById('atv-finish');
 const atvCancel = document.getElementById('atv-cancel');
 const atvStatus = document.getElementById('atv-status');
 let pairingPoll = null;
+const btScan = document.getElementById('bt-scan');
+const btStop = document.getElementById('bt-stop');
+const btStatus = document.getElementById('bt-status');
+const btDevices = document.getElementById('bt-devices');
+let btTimer = null;
+let btRequestBusy = false;
+
+function showBluetooth(state) {
+  btScan.disabled = btRequestBusy || state.scanning || state.pairing;
+  btStop.disabled = btRequestBusy || !state.scanning;
+  btStatus.className = state.state === 'error' || !state.available ? 'error' : 'muted';
+  btStatus.textContent = state.message;
+  btDevices.replaceChildren();
+  for (const device of state.devices || []) {
+    const row = document.createElement('div');
+    const label = document.createElement('span');
+    label.textContent = `${device.name} · ${device.address} · ${device.paired ? (device.connected ? 'Paired, connected' : 'Paired') : 'Not paired'} `;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = device.paired ? 'Paired with Pi' : 'Pair with Pi';
+    button.disabled = btRequestBusy || state.pairing || device.paired || !device.selectable;
+    button.addEventListener('click', () => bluetoothRequest('api/bluetooth/pair', {id: device.id}).catch(showBluetoothError));
+    row.append(label, button);
+    btDevices.append(row);
+  }
+  if (btTimer) clearTimeout(btTimer);
+  if (state.scanning || state.pairing) btTimer = setTimeout(() => loadBluetooth().catch(showBluetoothError), 2500);
+}
+
+async function loadBluetooth() {
+  const response = await fetch('api/bluetooth/status');
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || 'Could not check Pi Bluetooth.');
+  showBluetooth(body);
+}
+
+async function bluetoothRequest(path, body = null) {
+  btRequestBusy = true;
+  btScan.disabled = true;
+  btStop.disabled = true;
+  for (const button of btDevices.querySelectorAll('button')) button.disabled = true;
+  try {
+    const response = await fetch(path, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body || {})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Bluetooth request failed.');
+  } finally { btRequestBusy = false; }
+  await loadBluetooth();
+}
+
+function showBluetoothError(error) {
+  btStatus.className = 'error';
+  btStatus.textContent = error.message;
+  btScan.disabled = false;
+  btStop.disabled = false;
+}
+btScan.addEventListener('click', () => bluetoothRequest('api/bluetooth/scan').catch(showBluetoothError));
+btStop.addEventListener('click', () => bluetoothRequest('api/bluetooth/stop').catch(showBluetoothError));
 
 function platformName(value) {
   if (value === 'apple_tv') return 'Apple TV';
@@ -313,6 +383,7 @@ atvCancel.addEventListener('click', () => appleTVRequest('api/apple-tv/pair/canc
 loadConfig().catch(showError);
 loadPairing().catch(showPairingError);
 loadAppleTV().catch(showAppleTVError);
+loadBluetooth().catch(showBluetoothError);
 </script></body></html>"""
 
 
@@ -440,6 +511,38 @@ def _apple_tv(request: web.Request):
     return controller
 
 
+async def handle_bluetooth(request: web.Request) -> web.Response:
+    controller = request.app[BLUETOOTH_KEY]
+    if controller is None:
+        return web.json_response(
+            {"error": "Bluetooth pairing is unavailable."}, status=503
+        )
+    try:
+        operation = request.match_info["operation"]
+        if operation == "scan" and request.method == "POST":
+            await controller.scan()
+        elif operation == "stop" and request.method == "POST":
+            await controller.stop_scan()
+        elif operation == "pair" and request.method == "POST":
+            payload = await request.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
+                raise ValueError("Select a Bluetooth device from the scan list.")
+            await controller.pair(payload["id"])
+        elif operation != "status" or request.method != "GET":
+            return web.json_response(
+                {"error": "Unknown Bluetooth operation."}, status=404
+            )
+        return web.json_response(await controller.status())
+    except (BluetoothError, ValueError, TypeError) as error:
+        return web.json_response({"error": str(error)}, status=409)
+    except Exception:
+        LOG.exception("Bluetooth request failed")
+        return web.json_response(
+            {"error": "Pi Bluetooth is unavailable; check host Bluetooth and retry."},
+            status=503,
+        )
+
+
 async def handle_apple_tv_status(request: web.Request) -> web.Response:
     return web.json_response(_apple_tv(request).status())
 
@@ -482,6 +585,7 @@ def create_app(
     save_func=None,
     pairing_probe=None,
     apple_tv_controller=None,
+    bluetooth_pairing=None,
 ) -> web.Application:
     app = web.Application(middlewares=[supervisor_only])
     app[ALLOWED_REMOTE_KEY] = allowed_remote
@@ -492,6 +596,7 @@ def create_app(
     app[DISCOVERED_KEY] = {}
     app[PAIRING_PROBE_KEY] = pairing_probe
     app[APPLE_TV_KEY] = apple_tv_controller
+    app[BLUETOOTH_KEY] = bluetooth_pairing
     app.add_routes(
         [
             web.get("/", handle_index),
@@ -506,6 +611,8 @@ def create_app(
             web.post("/api/apple-tv/pair/start", handle_apple_tv_pair_start),
             web.post("/api/apple-tv/pair/finish", handle_apple_tv_pair_finish),
             web.post("/api/apple-tv/pair/cancel", handle_apple_tv_pair_cancel),
+            web.get("/api/bluetooth/{operation:status}", handle_bluetooth),
+            web.post("/api/bluetooth/{operation:scan|stop|pair}", handle_bluetooth),
         ]
     )
     return app
