@@ -159,7 +159,10 @@ async def run() -> None:
         LOG.info("Private Home Assistant target selector is ready")
         await asyncio.Event().wait()
     finally:
-        await bluetooth_pairing.close()
+        try:
+            await asyncio.wait_for(bluetooth_pairing.close(), timeout=4)
+        except Exception:  # noqa: BLE001 - keep relay cleanup independent of host Bluetooth
+            LOG.warning("Bluetooth cleanup did not complete; continuing relay shutdown")
         await pairing_probe.stop()
         await apple_tv.close()
         await runner.cleanup()
