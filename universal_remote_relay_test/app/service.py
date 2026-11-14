@@ -9,12 +9,13 @@ from pathlib import Path
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 from apple_tv import AppleTVController
+from bluetooth_pairing import BluetoothPairing
 from pairing_probe import PairingProbe
 from selector import create_app
 from target_store import LEGACY_OPTION_KEYS, migrate_legacy_target, read_options
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.4.6"
+VERSION = "0.4.7"
 LOG_LEVELS = {"debug", "info", "warning", "error"}
 
 
@@ -140,11 +141,13 @@ async def run() -> None:
         data_dir=data_dir / "pairing_probe",
         command_handler=apple_tv.send_key,
     )
+    bluetooth_pairing = BluetoothPairing()
     runner = web.AppRunner(
         create_app(
             target_path=target_path,
             pairing_probe=pairing_probe,
             apple_tv_controller=apple_tv,
+            bluetooth_pairing=bluetooth_pairing,
         ),
         access_log=None,
     )
@@ -156,6 +159,7 @@ async def run() -> None:
         LOG.info("Private Home Assistant target selector is ready")
         await asyncio.Event().wait()
     finally:
+        await bluetooth_pairing.close()
         await pairing_probe.stop()
         await apple_tv.close()
         await runner.cleanup()

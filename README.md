@@ -3,9 +3,9 @@
 Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Current release: v0.4.6
+## Current release: v0.4.7
 
-v0.4.6 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.7 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -34,8 +34,12 @@ and can remove one without affecting the others. The existing v0.4.5 pairing
 is migrated automatically. All phones control the same selected Apple TV;
 commands are serialized. Physical two-phone acceptance testing remains pending.
 
-Xiaomi Bluetooth handheld remotes use a different input path; this version
-does not provide Bluetooth pairing or button capture. See the
+At the bottom of the Web UI, **Add Bluetooth remote** provides a manual scan
+and **Pair with Pi** action. The Pi's BlueZ service stores the Bluetooth bond.
+The app requests host D-Bus access; it never starts its own Bluetooth daemon or
+changes the host's default pairing agent. Only no-PIN remotes are supported by
+this initial pairing flow. Real Xiaomi pairing still needs hardware testing.
+Bluetooth button forwarding is not enabled yet. See the
 [Bluetooth test plan](BLUETOOTH_REMOTES.md) for the remaining hardware checks.
 
 The trusted phone receiver remains advertised while the add-on is running,
@@ -66,7 +70,7 @@ selection.
 - Complete Google TV receiver emulation: not claimed.
 
 The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.4.6 stays experimental until multiple-phone operation, power, the expanded navigation mapping,
+v0.4.7 stays experimental until Bluetooth pairing, multiple-phone operation, power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
 
@@ -83,7 +87,7 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay v0.4.6**.
+1. Install and start **Universal Remote Relay v0.4.7**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.

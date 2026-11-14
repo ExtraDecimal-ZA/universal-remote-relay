@@ -2,7 +2,10 @@
 
 Requested hardware: Xiaomi Bluetooth handheld remote; exact model unknown.
 Current Google TV phone pairing uses a network protocol, not Bluetooth. The
-v0.4.6 saved-phone list does not provide Bluetooth remote pairing.
+v0.4.7 adds a bottom-of-page Bluetooth scan and Pair with Pi action through
+host BlueZ D-Bus access. The Pi retains Bluetooth bonds; the app's phone trust
+store remains separate. No-PIN pairing is implemented, but has not yet been
+verified with the physical Xiaomi. Bluetooth input forwarding is not enabled.
 
 ## Hardware evidence needed before implementation
 
