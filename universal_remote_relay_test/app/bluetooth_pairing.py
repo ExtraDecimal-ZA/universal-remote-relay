@@ -31,15 +31,30 @@ class BlueZBackend:
         self.agent_registered = False
         self.bus_lock = asyncio.Lock()
 
+    def _disconnect(self):
+        bus, self.bus = self.bus, None
+        self.owner = ""
+        self.selected = None
+        self.agent_registered = False
+        if bus is not None:
+            with suppress(ValueError):
+                bus.remove_message_handler(self.agent_message)
+            bus.disconnect()
+        return bus
+
     async def call(self, path, interface, member, signature="", body=None, timeout=8):
         async with self.bus_lock:
+            if self.bus is not None and self.bus.connected is False:
+                self._disconnect()
             if self.bus is None:
                 try:
-                    self.bus = await asyncio.wait_for(
-                        MessageBus(bus_type=BusType.SYSTEM).connect(), 8
-                    )
+                    self.bus = MessageBus(bus_type=BusType.SYSTEM)
+                    await asyncio.wait_for(self.bus.connect(), 8)
+                except asyncio.CancelledError:
+                    self._disconnect()
+                    raise
                 except Exception as error:
-                    self.bus = None
+                    self._disconnect()
                     raise BluetoothError(
                         "Pi Bluetooth is unavailable. Check host Bluetooth and add-on D-Bus access."
                     ) from error
@@ -93,6 +108,8 @@ class BlueZBackend:
         ):
             return None
         if message.member in {"Release", "Cancel"}:
+            if message.member == "Release":
+                self.agent_registered = False
             return Message.new_method_return(message)
         selected = bool(message.body and message.body[0] == self.selected)
         if selected and (
@@ -112,24 +129,28 @@ class BlueZBackend:
 
     async def pair(self, path):
         # Register only our application agent, never replace the host default.
-        if not self.agent_registered:
-            await self.objects()
-            reply = await asyncio.wait_for(
-                self.bus.call(
-                    Message(
-                        destination="org.freedesktop.DBus",
-                        path="/org/freedesktop/DBus",
-                        interface="org.freedesktop.DBus",
-                        member="GetNameOwner",
-                        signature="s",
-                        body=["org.bluez"],
-                    )
-                ),
-                8,
-            )
-            if reply.message_type == MessageType.ERROR:
-                raise BluetoothError("The Pi Bluetooth service is unavailable.")
-            self.owner = reply.body[0]
+        await self.objects()
+        reply = await asyncio.wait_for(
+            self.bus.call(
+                Message(
+                    destination="org.freedesktop.DBus",
+                    path="/org/freedesktop/DBus",
+                    interface="org.freedesktop.DBus",
+                    member="GetNameOwner",
+                    signature="s",
+                    body=["org.bluez"],
+                )
+            ),
+            8,
+        )
+        if reply.message_type == MessageType.ERROR:
+            raise BluetoothError("The Pi Bluetooth service is unavailable.")
+        owner = reply.body[0]
+        if not self.agent_registered or owner != self.owner:
+            self.agent_registered = False
+            self.owner = owner
+            with suppress(ValueError):
+                self.bus.remove_message_handler(self.agent_message)
             self.bus.add_message_handler(self.agent_message)
             try:
                 await self.call(
@@ -166,7 +187,7 @@ class BlueZBackend:
             self.selected = None
 
     async def close(self):
-        if self.bus is not None:
+        try:
             if self.agent_registered:
                 with suppress(BluetoothError):
                     await self.call(
@@ -176,12 +197,11 @@ class BlueZBackend:
                         "o",
                         [AGENT_PATH],
                     )
-                self.bus.remove_message_handler(self.agent_message)
-            self.bus.disconnect()
+        finally:
+            bus = self._disconnect()
+        if bus is not None:
             with suppress(Exception):
-                await self.bus.wait_for_disconnect()
-            self.bus = None
-            self.agent_registered = False
+                await asyncio.wait_for(bus.wait_for_disconnect(), timeout=1)
 
 
 def value(properties, key, default=None):
@@ -202,8 +222,19 @@ class BluetoothPairing:
         self.message = "Put your remote in Bluetooth pairing mode, then select Scan for Bluetooth devices."
         self.devices = []
         self.adapters = []
+        self.closed = False
+        self.selection_adapter = None
+        self.selection_expires = 0
+
+    def _selectable(self, path):
+        return (
+            path in self.seen
+            and asyncio.get_running_loop().time() < self.selection_expires
+        )
 
     async def status(self):
+        if self.closed:
+            return self._snapshot(False, "Bluetooth pairing is stopped.")
         try:
             objects = await self.backend.objects()
             self.adapters = [
@@ -229,14 +260,19 @@ class BluetoothPairing:
                 if DEVICE in interfaces
             ]
             if self.scan_adapter:
-                self.seen.update(item["id"] for item in self.devices)
+                self.seen.update(
+                    item["id"]
+                    for item in self.devices
+                    if item["id"].startswith(self.scan_adapter + "/dev_")
+                )
             for device in self.devices:
-                device["selectable"] = device["id"] in self.seen
+                device["selectable"] = self._selectable(device["id"])
             available = any(item["powered"] for item in self.adapters)
         except (BluetoothError, OSError) as error:
             available = False
             self.devices = []
             self.adapters = []
+            self.seen.clear()
             return self._snapshot(available, str(error))
         return self._snapshot(
             available,
@@ -259,6 +295,8 @@ class BluetoothPairing:
 
     async def scan(self):
         async with self.lock:
+            if self.closed:
+                raise BluetoothError("Bluetooth pairing is stopped.")
             if self.pair_task is not None and not self.pair_task.done():
                 raise BluetoothError("Wait for Bluetooth pairing to finish.")
             await self.status()
@@ -272,14 +310,19 @@ class BluetoothPairing:
             self.seen.clear()
             await self.backend.start_scan(adapter["id"])
             self.scan_adapter = adapter["id"]
+            self.selection_adapter = self.scan_adapter
+            self.selection_expires = (
+                asyncio.get_running_loop().time() + self.scan_seconds + 120
+            )
             self.state = "scanning"
-            self.message = "Scanning for 30 seconds. Select your remote from the list."
+            self.message = f"Scanning for {self.scan_seconds:g} seconds. Select your remote from the list."
             self.scan_task = asyncio.create_task(self._expire_scan())
 
     async def _expire_scan(self):
         await asyncio.sleep(self.scan_seconds)
         async with self.lock:
-            await self._stop_scan()
+            with suppress(BluetoothError):
+                await self._stop_scan()
 
     async def _stop_scan(self):
         if self.scan_task is not None and self.scan_task is not asyncio.current_task():
@@ -293,7 +336,13 @@ class BluetoothPairing:
             try:
                 await self.backend.stop_scan(adapter)
             except (BluetoothError, OSError):
-                self.message = "Bluetooth scan ended; host discovery cleanup could not be confirmed."
+                # Disconnecting our own D-Bus client releases only its scan
+                # session, leaving Home Assistant's discovery untouched.
+                await self.backend.close()
+                self.seen.clear()
+                self.state = "error"
+                self.message = "Scan cleanup failed; the Bluetooth connection was reset. Scan again to retry."
+                raise BluetoothError(self.message) from None
             else:
                 self.message = "Scan finished. Select your remote, or scan again."
             self.state = "ready"
@@ -304,10 +353,12 @@ class BluetoothPairing:
 
     async def pair(self, identifier):
         async with self.lock:
+            if self.closed:
+                raise BluetoothError("Bluetooth pairing is stopped.")
             if self.pair_task is not None and not self.pair_task.done():
                 raise BluetoothError("Another Bluetooth remote is pairing.")
             await self.status()
-            if not isinstance(identifier, str) or identifier not in self.seen:
+            if not isinstance(identifier, str) or not self._selectable(identifier):
                 raise BluetoothError(
                     "Scan first and select a Bluetooth device from that list."
                 )
@@ -316,6 +367,13 @@ class BluetoothPairing:
             )
             if device is None or device["paired"]:
                 raise BluetoothError("Device is missing or already paired with the Pi.")
+            if not any(
+                item["id"] == self.selection_adapter and item["powered"]
+                for item in self.adapters
+            ):
+                raise BluetoothError(
+                    "The scanned Bluetooth adapter is no longer powered. Scan again."
+                )
             await self._stop_scan()
             self.state, self.message = "pairing", "Pairing with the selected remote…"
             self.pair_task = asyncio.create_task(self._pair(identifier))
@@ -334,10 +392,18 @@ class BluetoothPairing:
             )
 
     async def close(self):
-        for task in (self.scan_task, self.pair_task):
-            if task is not None:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-        await self.stop_scan()
-        await self.backend.close()
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            for task in (self.scan_task, self.pair_task):
+                if task is not None:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+            await self.stop_scan()
+        finally:
+            self.seen.clear()
+            self.devices = []
+            self.adapters = []
+            await self.backend.close()

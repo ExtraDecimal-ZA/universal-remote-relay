@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.7
+# Universal Remote Relay v0.4.8
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. The stable diagnostic add-on remains separate.
@@ -79,6 +79,14 @@ last phone does not restore the previous pairing on restart.
    show devices previously seen by the host, so check the selected device.
 4. Wait for the pairing result. Scanning stops automatically after 30 seconds;
    pairing can take up to a minute. The list shows paired and connected state.
+
+Scan selections remain usable for two minutes after discovery ends. Only
+devices on the scanned adapter can be selected. Scan again if the selection
+expires or that adapter is no longer powered. A failed scan cleanup resets
+only this app's Bluetooth connection so a new scan can recover. The Web UI
+refreshes button state after errors and resumes status polling during active
+scanning/pairing. Host Bluetooth service restarts are handled on the next
+connection or pairing attempt.
 
 The Pi stores Bluetooth pairings through its existing BlueZ service. A new
 pairing helper is registered only for this app; the host's default agent is

@@ -114,6 +114,9 @@ jobs:
           python -m ruff check universal_remote_relay_test/app universal_remote_relay_test/tests
           python -m ruff format --check universal_remote_relay_test/app universal_remote_relay_test/tests
 
+      - name: Test Web UI behavior
+        run: node universal_remote_relay_test/tests/test_selector_ui.js
+
       - name: Compile service
         run: |
           python -m compileall universal_remote_relay/app
