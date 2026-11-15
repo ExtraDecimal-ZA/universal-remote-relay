@@ -6,6 +6,11 @@
   changes while connecting or before a transport retry. A Power retry cannot
   move to another selected TV, even if that TV has since been paired.
 - Keep display-name and address changes compatible with the same saved identity.
+- Poll phone status every five seconds while the Web UI is idle, retaining
+  one-second updates during pairing or an active phone connection. Pause phone
+  and Bluetooth polling in hidden pages and refresh once when they return.
+- Share in-flight status reads, wait for older reads before pairing changes,
+  and reuse unchanged saved-phone rows instead of rebuilding them every second.
 - Add four regressions for target changes, navigation and Power retries, and
   informational name/address updates during connection.
 - Preserve phone trust, Bluetooth behavior, stable v0.4.6, hostnames and ports.

@@ -8,6 +8,11 @@ single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth
 pairing. Keep only one relay running because they share phone receiver ports;
 their protected pairing data is separate.
 
+The Web UI refreshes phone status every five seconds when idle and every second
+during pairing or a connected phone session. Phone and Bluetooth status polling
+pause while the page is hidden and refresh when you return. The phone receiver
+and command forwarding continue running independently of the Web UI.
+
 ## Select one target
 
 1. Start the add-on.

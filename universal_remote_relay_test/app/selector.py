@@ -122,6 +122,10 @@ const atvFinish = document.getElementById('atv-finish');
 const atvCancel = document.getElementById('atv-cancel');
 const atvStatus = document.getElementById('atv-status');
 let pairingPoll = null;
+let pairingLastState = null;
+let pairingLoad = null;
+let pairingRequestBusy = false;
+let remoteListKey = null;
 const btScan = document.getElementById('bt-scan');
 const btStop = document.getElementById('bt-stop');
 const btStatus = document.getElementById('bt-status');
@@ -129,11 +133,12 @@ const btDevices = document.getElementById('bt-devices');
 let btTimer = null;
 let btRequestBusy = false;
 let btLastState = null;
+let btLoad = null;
 
 function scheduleBluetoothPoll() {
   if (btTimer) clearTimeout(btTimer);
   btTimer = null;
-  if (btLastState && (btLastState.scanning || btLastState.pairing)) {
+  if (!document.hidden && !btRequestBusy && !btLoad && btLastState && (btLastState.scanning || btLastState.pairing)) {
     btTimer = setTimeout(() => { btTimer = null; loadBluetooth().catch(showBluetoothError); }, 2500);
   }
 }
@@ -163,20 +168,30 @@ function showBluetooth(state) {
 }
 
 async function loadBluetooth() {
-  const response = await fetch('api/bluetooth/status');
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Could not check Pi Bluetooth.');
-  showBluetooth(body);
+  if (btLoad) return btLoad;
+  if (btRequestBusy) return;
+  if (btTimer) clearTimeout(btTimer);
+  btTimer = null;
+  btLoad = (async () => {
+    const response = await fetch('api/bluetooth/status', {signal: AbortSignal.timeout(10000)});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Could not check Pi Bluetooth.');
+    showBluetooth(body);
+  })();
+  try { return await btLoad; }
+  finally { btLoad = null; scheduleBluetoothPoll(); }
 }
 
 async function bluetoothRequest(path, body = null) {
   if (btRequestBusy) return;
   btRequestBusy = true;
+  scheduleBluetoothPoll();
   btScan.disabled = true;
   btStop.disabled = true;
   for (const button of btDevices.querySelectorAll('button')) button.disabled = true;
   let failure = null;
   try {
+    if (btLoad) await btLoad.catch(() => {});
     const response = await fetch(path, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body || {})
@@ -298,8 +313,9 @@ platform.addEventListener('change', () => scan().catch(showError));
 function showError(error) { status.className = 'error'; status.textContent = error.message; }
 
 function showPairing(pairing) {
-  pairStart.disabled = pairing.pairing_active;
-  pairStop.disabled = !pairing.pairing_active;
+  pairingLastState = pairing;
+  pairStart.disabled = pairingRequestBusy || pairing.pairing_active;
+  pairStop.disabled = pairingRequestBusy || !pairing.pairing_active;
   const pairingFailed = pairing.state === 'error' || pairing.state.endsWith('_error');
   pairStatus.className = pairingFailed ? 'error' : pairing.paired ? 'ok' : 'muted';
   pairStatus.textContent = pairing.message;
@@ -311,41 +327,76 @@ function showPairing(pairing) {
   if (pairing.pairing_active) details.push(`${pairing.seconds_remaining}s remaining`);
   pairDetail.textContent = details.join(' · ');
   const items = pairing.remotes || [];
-  remotes.replaceChildren();
-  if (!items.length) remotes.textContent = 'No saved phone remotes.';
-  for (const remote of items) {
-    const row = document.createElement('div');
-    const label = document.createElement('span');
-    label.textContent = `${remote.name} (${remote.id.slice(-6)}) `;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = 'Remove';
-    remove.addEventListener('click', async () => {
-      remove.disabled = true;
-      try {
-        await pairingRequest(`api/pairing/remotes/${encodeURIComponent(remote.id)}/remove`);
-      } catch (error) { showPairingError(error); }
-    });
-    row.append(label, remove);
-    remotes.append(row);
+  const listKey = JSON.stringify(items.map(remote => [remote.id, remote.name]));
+  if (listKey !== remoteListKey) {
+    remoteListKey = listKey;
+    remotes.replaceChildren();
+    if (!items.length) remotes.textContent = 'No saved phone remotes.';
+    for (const remote of items) {
+      const row = document.createElement('div');
+      const label = document.createElement('span');
+      label.textContent = `${remote.name} (${remote.id.slice(-6)}) `;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', async () => {
+        remove.disabled = true;
+        try {
+          await pairingRequest(`api/pairing/remotes/${encodeURIComponent(remote.id)}/remove`);
+        } catch (error) { showPairingError(error); }
+        finally { remove.disabled = false; }
+      });
+      row.append(label, remove);
+      remotes.append(row);
+    }
   }
-  if (pairing.active && !pairingPoll) pairingPoll = setInterval(loadPairing, 1000);
+  schedulePairingPoll();
+}
+
+function schedulePairingPoll() {
+  if (pairingPoll) clearTimeout(pairingPoll);
+  pairingPoll = null;
+  if (document.hidden || pairingRequestBusy || pairingLoad) return;
+  const active = pairingLastState && (pairingLastState.pairing_active || pairingLastState.remote_connected);
+  pairingPoll = setTimeout(() => {
+    pairingPoll = null;
+    loadPairing().catch(showPairingError);
+  }, active ? 1000 : 5000);
 }
 
 async function pairingRequest(path) {
+  if (pairingRequestBusy) return;
+  pairingRequestBusy = true;
+  schedulePairingPoll();
   pairStart.disabled = true;
   pairStop.disabled = true;
-  const response = await fetch(path, {method: 'POST'});
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Phone pairing request failed.');
-  showPairing(body);
+  try {
+    if (pairingLoad) await pairingLoad.catch(() => {});
+    const response = await fetch(path, {method: 'POST'});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Phone pairing request failed.');
+    showPairing(body);
+  } finally {
+    pairingRequestBusy = false;
+    pairStart.disabled = Boolean(pairingLastState && pairingLastState.pairing_active);
+    pairStop.disabled = !Boolean(pairingLastState && pairingLastState.pairing_active);
+    schedulePairingPoll();
+  }
 }
 
 async function loadPairing() {
-  const response = await fetch('api/pairing/status');
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Could not read pairing status.');
-  showPairing(body);
+  if (pairingLoad) return pairingLoad;
+  if (pairingRequestBusy) return;
+  if (pairingPoll) clearTimeout(pairingPoll);
+  pairingPoll = null;
+  pairingLoad = (async () => {
+    const response = await fetch('api/pairing/status', {signal: AbortSignal.timeout(10000)});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Could not read pairing status.');
+    showPairing(body);
+  })();
+  try { return await pairingLoad; }
+  finally { pairingLoad = null; schedulePairingPoll(); }
 }
 
 pairStart.addEventListener('click', () => pairingRequest('api/pairing/start').catch(showPairingError));
@@ -353,7 +404,7 @@ pairStop.addEventListener('click', () => pairingRequest('api/pairing/stop').catc
 function showPairingError(error) {
   pairStatus.className = 'error';
   pairStatus.textContent = error.message;
-  loadPairing().catch(() => { pairStart.disabled = false; pairStop.disabled = true; });
+  schedulePairingPoll();
 }
 
 function showAppleTV(state) {
@@ -400,6 +451,15 @@ function showAppleTVError(error) {
 atvStart.addEventListener('click', () => appleTVRequest('api/apple-tv/pair/start').catch(showAppleTVError));
 atvFinish.addEventListener('click', () => appleTVRequest('api/apple-tv/pair/finish', {pin: atvPin.value}).catch(showAppleTVError));
 atvCancel.addEventListener('click', () => appleTVRequest('api/apple-tv/pair/cancel').catch(showAppleTVError));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    schedulePairingPoll();
+    scheduleBluetoothPoll();
+  } else {
+    loadPairing().catch(showPairingError);
+    loadBluetooth().catch(showBluetoothError);
+  }
+});
 loadConfig().catch(showError);
 loadPairing().catch(showPairingError);
 loadAppleTV().catch(showAppleTVError);
