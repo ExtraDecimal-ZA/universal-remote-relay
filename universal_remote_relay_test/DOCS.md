@@ -1,7 +1,9 @@
-# Universal Remote Relay v0.4.8
+# Universal Remote Relay v0.4.10
 
 This experimental add-on provides a private, Home Assistant-authenticated
-single-target selector. The stable diagnostic add-on remains separate.
+single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth
+pairing. Keep only one relay running because they share phone receiver ports;
+their protected pairing data is separate.
 
 ## Select one target
 
@@ -94,6 +96,17 @@ unchanged. Only no-PIN pairing is supported initially. The app does not enable
 an unpowered adapter automatically or remove existing host Bluetooth devices.
 If Bluetooth is unavailable or access is denied, the panel reports it while
 phone and Apple TV functions continue. No Bluetooth scan runs on startup.
+
+Timeout messages identify the operation and its time limit. A Pair timeout
+also reports the host's paired/connected state and the last pairing-agent step,
+without logging device addresses, PINs, or passkeys. If the Pi confirms it has
+paired the remote while service discovery is still finishing, the relay keeps
+that pairing and completes trust/connection setup instead of cancelling it.
+An unknown state is reported as unknown, never as successful pairing.
+
+The list may contain devices remembered by the Pi, including sleeping remotes.
+Seeing a name does not prove the remote is currently in pairing mode. The
+current physical test device is Xiaomi XMRM-006; Pi compatibility is unverified.
 
 **Pairing does not enable Bluetooth button forwarding.** The next hardware
 gate is to pair the Xiaomi with the Pi, then inspect its navigation input

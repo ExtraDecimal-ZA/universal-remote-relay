@@ -1,6 +1,7 @@
 # Xiaomi Bluetooth remote proof of concept
 
-Requested hardware: Xiaomi Bluetooth handheld remote; exact model unknown.
+Requested hardware: Xiaomi Bluetooth handheld remote, model **XMRM-006**
+(confirmed by the user). Its name in the Pi's device list is still unconfirmed.
 Current Google TV phone pairing uses a network protocol, not Bluetooth. The
 v0.4.7 adds a bottom-of-page Bluetooth scan and Pair with Pi action through
 host BlueZ D-Bus access. The Pi retains Bluetooth bonds; the app's phone trust
@@ -21,7 +22,8 @@ if it remains busy. A successful bond does not enable Bluetooth button input.
 
 ## Hardware evidence needed before implementation
 
-1. Read the Xiaomi model code under the battery cover (often an XMRM code).
+1. Confirm the displayed Bluetooth name and pairing-mode button sequence for
+   the user's XMRM-006. Model identification does not establish Pi compatibility.
 2. Inspect the Pi's Bluetooth adapter and Home Assistant OS capabilities without
    changing existing Bluetooth devices or pairing the remote away from its TV.
 3. On the agreed test host, pair the remote and record whether Linux exposes
