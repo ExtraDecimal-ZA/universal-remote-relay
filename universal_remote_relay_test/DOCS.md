@@ -1,4 +1,8 @@
-# Universal Remote Relay v0.4.12
+# Universal Remote Relay v0.4.13
+
+Release notes are included in this add-on's `CHANGELOG.md` and are shown by
+Home Assistant when an update is available. This release adds those notes;
+remote-control and pairing behavior is unchanged from v0.4.12.
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth

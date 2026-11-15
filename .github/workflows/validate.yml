@@ -32,6 +32,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           import yaml
 
           for filename in (
@@ -45,6 +46,15 @@ jobs:
                   document = yaml.safe_load(stream)
               if not isinstance(document, dict):
                   raise SystemExit(f"{filename} must contain a YAML mapping")
+
+          for folder in ("universal_remote_relay", "universal_remote_relay_test"):
+              manifest = yaml.safe_load(Path(folder, "config.yaml").read_text(encoding="utf-8"))
+              notes = Path(folder, "CHANGELOG.md").read_text(encoding="utf-8")
+              headings = re.findall(r"^## (\d+\.\d+\.\d+)(?:\s|$)", notes, re.MULTILINE)
+              if not headings or headings[0] != manifest["version"]:
+                  raise SystemExit(f"{folder}/CHANGELOG.md must start with version {manifest['version']}")
+              if len(headings) != len(set(headings)):
+                  raise SystemExit(f"{folder}/CHANGELOG.md contains duplicate release headings")
 
           stable = yaml.safe_load(
               Path("universal_remote_relay/config.yaml").read_text(encoding="utf-8")

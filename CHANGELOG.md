@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.13 — 2026-11-15
+
+- Add versioned CHANGELOG.md files inside both add-on folders so Home
+  Assistant can display each channel's release notes in its update interface.
+- Validate that the newest changelog version matches each add-on's manifest.
+- Keep the existing hostname and add-on IDs unchanged, preserving in-place
+  updates and existing pairing data. No remote-control or pairing behavior changes.
+
 ## 0.4.12 — 2026-11-15
 
 - Release this app's Bluetooth client after failed or cancelled pairing-agent
