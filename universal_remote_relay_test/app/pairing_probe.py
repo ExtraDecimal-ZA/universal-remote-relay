@@ -587,6 +587,7 @@ class PairingProbe:
             raise PairingProbeError("Another phone pairing session is already active")
         connection: SSL.Connection | None = None
         trust_saved = False
+        confirmation_sent = False
         try:
             connection = self._tls_connection(
                 self._server_context(pairing=True), client_socket
@@ -659,6 +660,7 @@ class PairingProbe:
             response = _polo_message()
             response.secret_ack.secret = expected
             self._write_polo(connection, response)
+            confirmation_sent = True
             self._update_state(
                 state="paired",
                 message="Phone paired permanently. Reconnects remain enabled.",
@@ -673,10 +675,12 @@ class PairingProbe:
                     connection.shutdown()
                 connection.close()
             self._session_lock.release()
-            # Success cleanup closes accepted pairing sockets. Schedule it
-            # only after the final acknowledgement and TLS stream are finished.
+            # Closing the window must wait for the TLS session to finish. A
+            # saved certificate does not prove the final confirmation was sent.
             if trust_saved and self._loop is not None:
-                self._loop.call_soon_threadsafe(self._close_pairing_after_success)
+                self._loop.call_soon_threadsafe(
+                    self._close_pairing_after_session, confirmation_sent
+                )
 
     @staticmethod
     def _read_polo(
@@ -726,12 +730,21 @@ class PairingProbe:
                     with suppress(OSError):
                         active_socket.shutdown(socket.SHUT_RDWR)
 
-    def _close_pairing_after_success(self) -> None:
-        asyncio.create_task(
-            self.close_pairing_window(
-                reason="Phone paired permanently; trusted reconnect remains available."
-            )
+    def _close_pairing_after_session(self, confirmation_sent: bool) -> None:
+        asyncio.create_task(self._finish_pairing_window(confirmation_sent))
+
+    async def _finish_pairing_window(self, confirmation_sent: bool) -> None:
+        message = (
+            "Phone paired permanently; trusted reconnect remains available."
+            if confirmation_sent
+            else "Pairing confirmation failed. Saved phone trust was kept. Reconnect the phone; if needed, open a new pairing window and retry."
         )
+        await self.close_pairing_window(reason=message)
+        if not confirmation_sent:
+            self._update_state(state="pairing_error", message=message)
+            LOG.warning(
+                "Phone trust saved, but final pairing confirmation could not be sent"
+            )
 
     def _run_remote_session(self, client_socket: socket.socket, _address) -> None:
         if not self._trusted_fingerprints:

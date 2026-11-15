@@ -297,6 +297,59 @@ class PairingRoundTripTest(unittest.TestCase):
 
 
 class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_phone_confirmation_reports_retry_and_keeps_saved_trust(self):
+        case = PairingRoundTripTest()
+        case.setUp()
+        probe = case.probe
+        probe._loop = asyncio.get_running_loop()
+        probe._active = True
+        closed = threading.Event()
+        original_write = probe._write_polo
+        original_close = probe.close_pairing_window
+        original_session = probe._run_pairing_session
+
+        def fail_final_ack(connection, message):
+            if message.HasField("secret_ack"):
+                raise OSError("connection lost before confirmation")
+            return original_write(connection, message)
+
+        async def close_window(**kwargs):
+            await original_close(**kwargs)
+            closed.set()
+
+        def guarded_session(client_socket, address):
+            with probe._client_socket_lock:
+                probe._client_sockets.add(client_socket)
+                probe._pairing_client_sockets.add(client_socket)
+            probe._guard_client(original_session, client_socket, address, True)
+
+        try:
+            with (
+                patch.object(probe, "_write_polo", side_effect=fail_final_ack),
+                patch.object(probe, "close_pairing_window", side_effect=close_window),
+                patch.object(
+                    probe, "_run_pairing_session", side_effect=guarded_session
+                ),
+            ):
+                with self.assertRaises((EOFError, OSError, SSL.Error)):
+                    await asyncio.wait_for(asyncio.to_thread(case._pair_phone), 5)
+                self.assertTrue(await asyncio.to_thread(closed.wait, 1))
+            state = probe.status()
+            self.assertEqual(state["state"], "pairing_error")
+            self.assertIn("confirmation failed", state["message"])
+            self.assertIn("retry", state["message"])
+            self.assertNotIn("paired permanently", state["message"])
+            self.assertEqual(state["pairing_code"], "")
+            self.assertFalse(state["pairing_active"])
+            self.assertTrue(state["active"])
+            self.assertTrue(probe.remote_store.records)
+            replacement = PairingProbe(data_dir=probe.data_dir)
+            replacement._load_trusted_phone()
+            self.assertTrue(replacement.status()["paired"])
+        finally:
+            await probe.stop()
+            case.tearDown()
+
     async def test_success_cleanup_waits_until_final_phone_ack_is_written(self):
         case = PairingRoundTripTest()
         case.setUp()

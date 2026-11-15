@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.14 — 2026-11-15
+
+- Distinguish saved phone trust from a successfully sent final pairing
+  confirmation. A failed confirmation now reports a pairing error and retry
+  instructions rather than a permanent-pairing success message.
+- Keep valid saved trust and existing phone connections available while
+  clearing the failed pairing code and closing the new-pairing window safely.
+- Add a local TLS failure regression and a Web UI check that saved trust
+  cannot hide the confirmation error or prevent reopening pairing.
+- Keep stable v0.4.6, Bluetooth behavior, permissions and hostnames unchanged.
+
 ## 0.4.13 — 2026-11-15
 
 - Add versioned CHANGELOG.md files inside both add-on folders so Home

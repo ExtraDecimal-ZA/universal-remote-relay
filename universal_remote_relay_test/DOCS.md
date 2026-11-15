@@ -1,8 +1,7 @@
-# Universal Remote Relay v0.4.13
+# Universal Remote Relay v0.4.14
 
 Release notes are included in this add-on's `CHANGELOG.md` and are shown by
-Home Assistant when an update is available. This release adds those notes;
-remote-control and pairing behavior is unchanged from v0.4.12.
+Home Assistant when an update is available.
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth
@@ -76,6 +75,11 @@ The previous single-phone certificate is imported automatically on upgrade.
 Phone trust is saved atomically in `/data/pairing_probe/paired_remotes.json`.
 After migration, even an empty remotes list is authoritative, so removing the
 last phone does not restore the previous pairing on restart.
+
+If the final phone-pairing confirmation cannot be sent, the Web UI reports an
+error and offers a retry instead of claiming pairing succeeded. Valid saved
+phone trust is preserved. Reconnect the phone; if it requests pairing again,
+open a new pairing window and retry. Existing phones remain trusted.
 
 ## Add a Bluetooth remote
 
