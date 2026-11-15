@@ -1,5 +1,19 @@
 # Changelog
 
+## Stable channel promotion — 2026-11-15
+
+- Promote the original v0.4.6 runtime to the stable `universal_remote_relay`
+  add-on, replacing the v0.1.3 diagnostic-only entry. Keep experimental v0.4.9
+  and its installed data separate.
+- Reuse the published v0.4.6 ARM64 image; restore its unchanged source, launcher,
+  dependency pins, and regression suite from commit
+  `4582d427501f4ad36f8daf3dd7eff842dd25e0d1` for review and reproducibility.
+- Require a manual upgrade from the diagnostic entry; stable enables the full
+  LAN relay but does not request Bluetooth D-Bus access.
+- Verify the original image digest, ARM64 startup, source match, and private
+  ingress before publishing the channel change. Document separate pairing data
+  and the requirement to run only one relay at a time.
+
 ## 0.4.9 — 2026-11-15
 
 - Identify which Bluetooth operation was rejected and report InProgress as a

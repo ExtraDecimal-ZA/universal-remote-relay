@@ -37,6 +37,7 @@ jobs:
           for filename in (
               "repository.yaml",
               "universal_remote_relay/config.yaml",
+              "universal_remote_relay/translations/en.yaml",
               "universal_remote_relay_test/config.yaml",
               "universal_remote_relay_test/translations/en.yaml",
           ):
@@ -44,6 +45,27 @@ jobs:
                   document = yaml.safe_load(stream)
               if not isinstance(document, dict):
                   raise SystemExit(f"{filename} must contain a YAML mapping")
+
+          stable = yaml.safe_load(
+              Path("universal_remote_relay/config.yaml").read_text(encoding="utf-8")
+          )
+          if stable.get("version") != "0.4.6" or stable.get("stage") != "stable":
+              raise SystemExit("stable channel must stay pinned to stable v0.4.6")
+          if stable.get("image") != "ghcr.io/extradecimal-za/universal-remote-relay-test":
+              raise SystemExit("stable must reuse the original published v0.4.6 image")
+          if stable.get("slug") != "universal_remote_relay":
+              raise SystemExit("stable add-on ID must remain unchanged")
+          if stable.get("breaking_versions") != ["0.4.6"]:
+              raise SystemExit("diagnostic-to-relay upgrade must require manual action")
+          if stable.get("host_dbus", False):
+              raise SystemExit("stable v0.4.6 must not request Bluetooth access")
+          if not stable.get("host_network") or not stable.get("ingress") or stable.get("ingress_port") != 0:
+              raise SystemExit("stable must use LAN discovery and private dynamic ingress")
+          if "ports" in stable or "webui" in stable:
+              raise SystemExit("stable must not publish its management port")
+          for filename in ("Dockerfile", "app/service.py", "run.sh"):
+              if "0.4.6" not in Path("universal_remote_relay", filename).read_text(encoding="utf-8"):
+                  raise SystemExit(f"stable runtime does not match v0.4.6: {filename}")
 
           experimental = yaml.safe_load(
               Path("universal_remote_relay_test/config.yaml").read_text(encoding="utf-8")
@@ -109,8 +131,10 @@ jobs:
           (cd universal_remote_relay && python -W error -m unittest discover -s tests -v)
           (cd universal_remote_relay_test && python -W error -m unittest discover -s tests -v)
 
-      - name: Lint experimental service
+      - name: Lint relay services
         run: |
+          python -m ruff check universal_remote_relay/app universal_remote_relay/tests
+          python -m ruff format --check universal_remote_relay/app universal_remote_relay/tests
           python -m ruff check universal_remote_relay_test/app universal_remote_relay_test/tests
           python -m ruff format --check universal_remote_relay_test/app universal_remote_relay_test/tests
 

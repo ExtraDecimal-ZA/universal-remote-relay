@@ -1,9 +1,31 @@
 # Universal Remote Relay
 
-Experimental Home Assistant add-on project for Raspberry Pi 3B+ running
+Home Assistant add-on project for Raspberry Pi 3B+ running
 64-bit `aarch64` Home Assistant OS.
 
-## Current release: v0.4.9
+## Release channels
+
+| Channel | Version | Add-on ID | Scope |
+| --- | --- | --- | --- |
+| Stable | **0.4.6** | `universal_remote_relay` | Apple TV pairing and phone remotes; original v0.4.6 runtime |
+| Experimental | **0.4.9** | `universal_remote_relay_test` | Newer development, including Bluetooth pairing |
+
+Stable replaces the v0.1.3 diagnostic-only entry. It reuses the original
+published v0.4.6 ARM64 image without rebuilding it on the Pi. The historical
+image name contains `test`; Home Assistant's stable entry is explicitly marked
+`stage: stable`. Development updates do not change the stable version.
+
+Only run one relay at a time because both use the same phone connection ports.
+Each add-on has a separate protected data directory. Switching from experimental
+to stable requires selecting the target and pairing the Apple TV and phones in
+the stable Web UI; experimental pairing data is not copied or removed. Keep the
+old installation stopped until the stable setup is verified. The upgrade from
+the diagnostic v0.1.3 entry requires a manual update because it adds the full
+network relay.
+
+See [stable instructions](universal_remote_relay/DOCS.md).
+
+## Experimental release: v0.4.9
 
 v0.4.9 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
@@ -69,8 +91,10 @@ selection.
   pyatv; an unknown state produces an actionable error instead of guessing.
 - Complete Google TV receiver emulation: not claimed.
 
-The independent stable add-on remains a recovery diagnostic at v0.1.3. The
-v0.4.9 stays experimental until Bluetooth pairing, multiple-phone operation, power, the expanded navigation mapping,
+The stable channel is pinned to v0.4.6 at the user's request. Hardware-specific
+limitations above still apply; the stable label does not establish complete
+Google TV emulation or Xiaomi compatibility. Version 0.4.9 stays experimental
+until Bluetooth pairing, multiple-phone operation, power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
 
@@ -80,7 +104,7 @@ Add this repository to the Home Assistant Add-on Store:
 
 `https://github.com/ExtraDecimal-ZA/universal-remote-relay`
 
-Install **Universal Remote Relay** only after both GitHub
+Install **Universal Remote Relay** only after the applicable GitHub
 workflows pass and the versioned ARM64 image is anonymously downloadable.
 
 Keep Start on boot, Watchdog, and Auto update off during the acceptance test.

@@ -1,0 +1,80 @@
+name: Verify stable ARM64 release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'universal_remote_relay/**'
+      - '.github/workflows/stable-arm64-verify.yml'
+  pull_request:
+    paths:
+      - 'universal_remote_relay/**'
+      - '.github/workflows/stable-arm64-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-stable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Download original stable image anonymously
+        run: |
+          set -euo pipefail
+          image='ghcr.io/extradecimal-za/universal-remote-relay-test:0.4.6'
+          docker pull --platform linux/arm64 "$image"
+          platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+          [[ "$platform" == 'linux/arm64' ]]
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
+          [[ "$digest" == 'ghcr.io/extradecimal-za/universal-remote-relay-test@sha256:dd29294025e4281ea9727057d3dc1bf35552ed5776fee89ab9478f65e9246d1d' ]]
+
+      - name: Verify original source and stable startup
+        run: |
+          set -euo pipefail
+          container_id=""
+          cleanup() {
+            if [[ -n "$container_id" ]]; then
+              docker rm --force "$container_id" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          container_id="$(docker run --detach --platform linux/arm64 \
+            --env INGRESS_PORT=0 \
+            --volume "$PWD/universal_remote_relay/app:/verified-source:ro" \
+            'ghcr.io/extradecimal-za/universal-remote-relay-test:0.4.6')"
+          ready=false
+          for _ in $(seq 1 20); do
+            logs="$(docker logs "$container_id" 2>&1)"
+            if grep -q 'Private Home Assistant target selector is ready' <<< "$logs"; then
+              ready=true
+              break
+            fi
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$container_id")" != true ]]; then
+              echo "$logs"
+              exit 1
+            fi
+            sleep 1
+          done
+          [[ "$ready" == true ]]
+          docker exec "$container_id" python3 -c '
+          from pathlib import Path
+          import socket
+          import service
+
+          assert service.VERSION == "0.4.6"
+          expected = {p.name: p.read_bytes() for p in Path("/verified-source").glob("*.py")}
+          actual = {p.name: p.read_bytes() for p in Path("/app").glob("*.py")}
+          assert expected and expected == actual, "stable source differs from original image"
+          remote = socket.socket()
+          remote.settimeout(2)
+          assert remote.connect_ex(("127.0.0.1", 6466)) == 0
+          remote.close()
+          pairing = socket.socket()
+          pairing.settimeout(2)
+          assert pairing.connect_ex(("127.0.0.1", 6467)) != 0
+          pairing.close()
+          '
+          docker logs "$container_id"
