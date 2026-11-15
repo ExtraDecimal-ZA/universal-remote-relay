@@ -16,6 +16,7 @@ from bluetooth_pairing import (
     BluetoothError,
     BluetoothPairing,
     BlueZBackend,
+    BlueZRequestError,
 )
 from dbus_next import Message, MessageType
 from selector import create_app
@@ -201,6 +202,156 @@ class BlueZAgentTest(unittest.TestCase):
 
 
 class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
+    def pairing_backend(self, failure_member, error):
+        backend = BlueZBackend()
+        backend.bus = Mock()
+        backend.bus.call = AsyncMock(
+            return_value=Mock(message_type=MessageType.METHOD_RETURN, body=[":1.5"])
+        )
+
+        async def call(path, interface, member, *args, **kwargs):
+            if member == failure_member:
+                raise error
+            return [{}]
+
+        backend.call = AsyncMock(side_effect=call)
+        return backend
+
+    async def test_busy_reply_preserves_operation_without_exposing_provider_body(self):
+        backend = BlueZBackend()
+        backend.bus = Mock(connected=True)
+        backend.bus.call = AsyncMock(
+            return_value=Mock(
+                message_type=MessageType.ERROR,
+                error_name="org.bluez.Error.InProgress",
+                body=["private provider detail"],
+            )
+        )
+        with self.assertRaises(BlueZRequestError) as raised:
+            await backend.call(DEVICE_PATH, DEVICE, "Pair")
+        self.assertEqual(raised.exception.member, "Pair")
+        self.assertEqual(raised.exception.error_name, "org.bluez.Error.InProgress")
+        self.assertIn("already pairing or connecting", str(raised.exception))
+        self.assertNotIn("permissions", str(raised.exception))
+        self.assertNotIn("private provider detail", str(raised.exception))
+
+    async def test_busy_scan_releases_own_client_and_retries_once(self):
+        backend = BlueZBackend()
+        backend.call = AsyncMock(
+            side_effect=[
+                BlueZRequestError("StartDiscovery", "org.bluez.Error.InProgress"),
+                [],
+            ]
+        )
+        backend.close = AsyncMock()
+        with patch("bluetooth_pairing.asyncio.sleep", new_callable=AsyncMock):
+            await backend.start_scan(ADAPTER_PATH)
+        backend.close.assert_awaited_once()
+        self.assertEqual(backend.call.await_count, 2)
+        self.assertTrue(
+            all(
+                call.args[2] == "StartDiscovery"
+                for call in backend.call.await_args_list
+            )
+        )
+
+    async def test_persistently_busy_scan_is_bounded_and_releases_client(self):
+        backend = BlueZBackend()
+        backend.call = AsyncMock(
+            side_effect=BlueZRequestError(
+                "StartDiscovery", "org.bluez.Error.InProgress"
+            )
+        )
+        backend.close = AsyncMock()
+        with (
+            patch("bluetooth_pairing.asyncio.sleep", new_callable=AsyncMock),
+            self.assertRaisesRegex(BluetoothError, "busy.*StartDiscovery"),
+        ):
+            await backend.start_scan(ADAPTER_PATH)
+        self.assertEqual(backend.call.await_count, 2)
+        self.assertEqual(backend.close.await_count, 2)
+
+    async def test_denied_scan_is_not_retried(self):
+        backend = BlueZBackend()
+        backend.call = AsyncMock(
+            side_effect=BlueZRequestError(
+                "StartDiscovery", "org.bluez.Error.NotAuthorized"
+            )
+        )
+        backend.close = AsyncMock()
+        with self.assertRaisesRegex(BluetoothError, "NotAuthorized"):
+            await backend.start_scan(ADAPTER_PATH)
+        backend.call.assert_awaited_once()
+        backend.close.assert_not_awaited()
+
+    async def test_unanswered_scan_releases_untracked_discovery(self):
+        for failure in (BluetoothError("timed out"), asyncio.CancelledError()):
+            with self.subTest(failure=type(failure).__name__):
+                backend = BlueZBackend()
+                backend.call = AsyncMock(side_effect=failure)
+                backend.close = AsyncMock()
+                with self.assertRaises(type(failure)):
+                    await backend.start_scan(ADAPTER_PATH)
+                backend.close.assert_awaited_once()
+
+    async def test_retry_timeout_also_releases_client(self):
+        backend = BlueZBackend()
+        backend.call = AsyncMock(
+            side_effect=[
+                BlueZRequestError("StartDiscovery", "org.bluez.Error.InProgress"),
+                BluetoothError("timed out"),
+            ]
+        )
+        backend.close = AsyncMock()
+        with (
+            patch("bluetooth_pairing.asyncio.sleep", new_callable=AsyncMock),
+            self.assertRaisesRegex(BluetoothError, "timed out"),
+        ):
+            await backend.start_scan(ADAPTER_PATH)
+        self.assertEqual(backend.close.await_count, 2)
+
+    async def test_rejected_pair_never_cancels_an_existing_pairing(self):
+        for name in ("InProgress", "AuthenticationRejected", "AlreadyExists"):
+            with self.subTest(error=name):
+                backend = self.pairing_backend(
+                    "Pair", BlueZRequestError("Pair", f"org.bluez.Error.{name}")
+                )
+                with self.assertRaises(BlueZRequestError):
+                    await backend.pair(DEVICE_PATH)
+                methods = [call.args[2] for call in backend.call.await_args_list]
+                self.assertNotIn("CancelPairing", methods)
+                self.assertNotIn("Set", methods)
+                self.assertNotIn("Connect", methods)
+                self.assertIsNone(backend.selected)
+
+    async def test_unanswered_pair_cancels_own_attempt(self):
+        for failure in (BluetoothError("timed out"), asyncio.CancelledError()):
+            with self.subTest(failure=type(failure).__name__):
+                backend = self.pairing_backend("Pair", failure)
+                with self.assertRaises(type(failure)):
+                    await backend.pair(DEVICE_PATH)
+                methods = [call.args[2] for call in backend.call.await_args_list]
+                self.assertEqual(methods.count("CancelPairing"), 1)
+                self.assertNotIn("Set", methods)
+                self.assertIsNone(backend.selected)
+
+    async def test_trust_failure_does_not_cancel_completed_pairing(self):
+        backend = self.pairing_backend("Set", BluetoothError("trust denied"))
+        with self.assertRaisesRegex(BluetoothError, "trust denied"):
+            await backend.pair(DEVICE_PATH)
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertNotIn("CancelPairing", methods)
+        self.assertNotIn("Connect", methods)
+
+    async def test_busy_connect_keeps_successful_pairing(self):
+        backend = self.pairing_backend(
+            "Connect", BlueZRequestError("Connect", "org.bluez.Error.InProgress")
+        )
+        result = await backend.pair(DEVICE_PATH)
+        self.assertIn("Paired with the Pi; connection is not ready", result)
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertNotIn("CancelPairing", methods)
+
     async def test_pair_registers_application_agent_and_trusts_only_selected_device(
         self,
     ):
