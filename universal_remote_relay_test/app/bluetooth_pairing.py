@@ -275,6 +275,11 @@ class BlueZBackend:
             except BaseException:
                 with suppress(ValueError):
                     bus.remove_message_handler(self.agent_message)
+                # A timeout/cancellation can leave registration accepted by
+                # BlueZ even though we never received its reply. Release only
+                # our client, so the next attempt cannot hit a stale agent.
+                if self.bus is bus:
+                    self._disconnect()
                 raise
             self.agent_registered = True
         return bus

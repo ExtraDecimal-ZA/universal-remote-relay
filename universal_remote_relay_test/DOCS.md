@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.11
+# Universal Remote Relay v0.4.12
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth
@@ -106,6 +106,8 @@ Pairing setup can recover once if the host connection changes before it is
 ready. A disconnect during pairing fails promptly rather than continuing on
 a different connection without the registered pairing agent. Retry after
 Bluetooth is available again; saved phone and Apple TV credentials are retained.
+Failed or cancelled agent registration releases this app's host connection so
+an accepted request with a lost reply cannot leave later attempts stuck.
 
 Timeout messages identify the operation and its time limit. A Pair timeout
 also reports the host's paired/connected state and the last pairing-agent step,
