@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.12 — 2026-11-15
+
+- Release this app's Bluetooth client after failed or cancelled pairing-agent
+  registration, including an accepted registration whose reply was lost.
+  A later attempt can register cleanly without a stale AlreadyExists error.
+- Schedule successful phone-pairing window cleanup only after the final
+  confirmation has been written and the TLS session has finished, so cleanup
+  cannot close the phone socket before that acknowledgement is delivered.
+- Add regression coverage for registration timeout/cancellation recovery and
+  the phone acknowledgement race using a real local TLS handshake.
+- Preserve stable v0.4.6, existing credentials, and private management access.
+
 ## 0.4.11 — 2026-11-15
 
 - Restore the Bluetooth agent and owner on the current bus after a setup

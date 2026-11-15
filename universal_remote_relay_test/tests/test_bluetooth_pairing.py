@@ -227,6 +227,63 @@ class BlueZAgentTest(unittest.TestCase):
 
 
 class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
+    async def test_accepted_registration_without_reply_releases_client_and_allows_retry(
+        self,
+    ):
+        for failure in (TimeoutError(), asyncio.CancelledError()):
+            with self.subTest(failure=type(failure).__name__):
+                backend = BlueZBackend()
+                original = backend.bus = Mock(connected=True)
+                fresh = Mock(connected=True)
+                fresh.connect = AsyncMock(return_value=fresh)
+                registered = {"old": False, "new": False}
+
+                async def original_call(
+                    message, registered=registered, failure=failure
+                ):
+                    if message.member == "GetNameOwner":
+                        body = [":1.5"]
+                    elif message.member == "RegisterAgent":
+                        registered["old"] = True
+                        raise failure
+                    else:
+                        body = [{}]
+                    return Mock(message_type=MessageType.METHOD_RETURN, body=body)
+
+                def disconnect(registered=registered, original=original):
+                    registered["old"] = False
+                    original.connected = False
+
+                async def fresh_call(message, registered=registered):
+                    if message.member == "GetNameOwner":
+                        body = [":1.5"]
+                    elif message.member in {"GetManagedObjects", "GetAll"}:
+                        body = [{}]
+                    else:
+                        body = []
+                    if message.member == "RegisterAgent":
+                        self.assertFalse(registered["old"])
+                        registered["new"] = True
+                    return Mock(message_type=MessageType.METHOD_RETURN, body=body)
+
+                original.call = AsyncMock(side_effect=original_call)
+                original.disconnect.side_effect = disconnect
+                fresh.call = AsyncMock(side_effect=fresh_call)
+                expected = (
+                    BluetoothTimeoutError
+                    if isinstance(failure, TimeoutError)
+                    else asyncio.CancelledError
+                )
+                with patch("bluetooth_pairing.MessageBus", return_value=fresh):
+                    with self.assertRaises(expected):
+                        await backend.pair(DEVICE_PATH)
+                    self.assertIsNone(backend.bus)
+                    self.assertFalse(backend.agent_registered)
+                    self.assertIn("Paired", await backend.pair(DEVICE_PATH))
+                original.disconnect.assert_called_once()
+                self.assertTrue(registered["new"])
+                self.assertIs(backend.bus, fresh)
+
     async def test_reconnect_during_agent_setup_restores_owner_and_callback(self):
         backend = BlueZBackend()
         original = backend.bus = Mock(connected=True)

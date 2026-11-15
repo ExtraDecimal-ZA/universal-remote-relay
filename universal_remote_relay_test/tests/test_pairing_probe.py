@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 APP = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP))
@@ -157,7 +158,7 @@ class PairingRoundTripTest(unittest.TestCase):
         remote_server.join(timeout=5)
         self.assertFalse(remote_server.is_alive())
 
-    def test_phone_pairs_once_and_reconnects_with_saved_trust(self):
+    def _pair_phone(self):
         self.probe._pairing_enabled = True
         server_socket, client_socket = socket.socketpair()
         server = threading.Thread(
@@ -219,6 +220,8 @@ class PairingRoundTripTest(unittest.TestCase):
         self.assertTrue(self.probe.status()["paired"])
         self.assertTrue(self.probe.remote_store.path.exists())
 
+    def test_phone_pairs_once_and_reconnects_with_saved_trust(self):
+        self._pair_phone()
         replacement = PairingProbe(data_dir=self.root / "relay")
         replacement._load_trusted_phone()
         self.assertTrue(replacement._trusted_fingerprints)
@@ -294,6 +297,53 @@ class PairingRoundTripTest(unittest.TestCase):
 
 
 class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
+    async def test_success_cleanup_waits_until_final_phone_ack_is_written(self):
+        case = PairingRoundTripTest()
+        case.setUp()
+        probe = case.probe
+        probe._loop = asyncio.get_running_loop()
+        probe._active = True
+        closed = threading.Event()
+        closed_before_ack = []
+        original_write = probe._write_polo
+        original_close = probe.close_pairing_window
+        original_session = probe._run_pairing_session
+
+        async def close_window(**kwargs):
+            await original_close(**kwargs)
+            closed.set()
+
+        def delayed_ack(connection, message):
+            if message.HasField("secret_ack"):
+                # Give success cleanup a chance to run before this TLS write.
+                # It must not yet be scheduled or close this pairing socket.
+                closed_before_ack.append(closed.wait(0.25))
+            return original_write(connection, message)
+
+        def tracked_session(client_socket, address):
+            with probe._client_socket_lock:
+                probe._client_sockets.add(client_socket)
+                probe._pairing_client_sockets.add(client_socket)
+            probe._guard_client(original_session, client_socket, address, True)
+
+        try:
+            with (
+                patch.object(probe, "_write_polo", side_effect=delayed_ack),
+                patch.object(probe, "close_pairing_window", side_effect=close_window),
+                patch.object(
+                    probe, "_run_pairing_session", side_effect=tracked_session
+                ),
+            ):
+                await asyncio.wait_for(asyncio.to_thread(case._pair_phone), 5)
+                self.assertTrue(await asyncio.to_thread(closed.wait, 1))
+            self.assertEqual(closed_before_ack, [False])
+            self.assertTrue(probe.remote_store.records)
+            self.assertTrue(probe.status()["active"])
+            self.assertFalse(probe.status()["pairing_active"])
+        finally:
+            await probe.stop()
+            case.tearDown()
+
     async def test_removing_remote_closes_only_its_active_connection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

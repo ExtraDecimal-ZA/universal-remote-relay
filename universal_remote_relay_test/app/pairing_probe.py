@@ -586,6 +586,7 @@ class PairingProbe:
         if not self._session_lock.acquire(blocking=False):
             raise PairingProbeError("Another phone pairing session is already active")
         connection: SSL.Connection | None = None
+        trust_saved = False
         try:
             connection = self._tls_connection(
                 self._server_context(pairing=True), client_socket
@@ -653,9 +654,8 @@ class PairingProbe:
 
             fingerprint = hashlib.sha256(peer_der).hexdigest()
             self._save_trusted_phone(peer, fingerprint, client_name)
+            trust_saved = True
             self._pairing_enabled = False
-            if self._loop is not None:
-                self._loop.call_soon_threadsafe(self._close_pairing_after_success)
             response = _polo_message()
             response.secret_ack.secret = expected
             self._write_polo(connection, response)
@@ -673,6 +673,10 @@ class PairingProbe:
                     connection.shutdown()
                 connection.close()
             self._session_lock.release()
+            # Success cleanup closes accepted pairing sockets. Schedule it
+            # only after the final acknowledgement and TLS stream are finished.
+            if trust_saved and self._loop is not None:
+                self._loop.call_soon_threadsafe(self._close_pairing_after_success)
 
     @staticmethod
     def _read_polo(
