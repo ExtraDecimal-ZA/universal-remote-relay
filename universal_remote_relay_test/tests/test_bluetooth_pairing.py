@@ -13,6 +13,7 @@ from bluetooth_pairing import (
     ADAPTER,
     AGENT_PATH,
     DEVICE,
+    BluetoothConnectionChanged,
     BluetoothError,
     BluetoothPairing,
     BluetoothTimeoutError,
@@ -226,6 +227,85 @@ class BlueZAgentTest(unittest.TestCase):
 
 
 class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reconnect_during_agent_setup_restores_owner_and_callback(self):
+        backend = BlueZBackend()
+        original = backend.bus = Mock(connected=True)
+        fresh = Mock(connected=True)
+        fresh.connect = AsyncMock(return_value=fresh)
+        authorization = []
+
+        async def original_call(message):
+            if message.member == "GetNameOwner":
+                original.connected = False
+                return Mock(message_type=MessageType.METHOD_RETURN, body=[":1.5"])
+            return Mock(message_type=MessageType.METHOD_RETURN, body=[{}])
+
+        async def fresh_call(message):
+            if message.member == "GetNameOwner":
+                body = [":1.5"]
+            elif message.member in {"GetManagedObjects", "GetAll"}:
+                body = [{}]
+            else:
+                body = []
+            if message.member == "Pair":
+                authorization.append(
+                    backend.agent_message(
+                        Message(
+                            path=AGENT_PATH,
+                            interface="org.bluez.Agent1",
+                            member="RequestAuthorization",
+                            sender=":1.5",
+                            signature="o",
+                            body=[DEVICE_PATH],
+                            serial=1,
+                        )
+                    )
+                )
+            return Mock(message_type=MessageType.METHOD_RETURN, body=body)
+
+        original.call = AsyncMock(side_effect=original_call)
+        fresh.call = AsyncMock(side_effect=fresh_call)
+        with patch("bluetooth_pairing.MessageBus", return_value=fresh):
+            await backend.pair(DEVICE_PATH)
+        self.assertEqual(backend.owner, ":1.5")
+        fresh.add_message_handler.assert_called_once_with(backend.agent_message)
+        self.assertEqual(authorization[0].message_type, MessageType.METHOD_RETURN)
+
+    async def test_agent_setup_reconnect_retries_are_bounded(self):
+        backend = BlueZBackend()
+        backend._register_agent = AsyncMock(side_effect=BluetoothConnectionChanged())
+        with self.assertRaises(BluetoothConnectionChanged):
+            await backend.pair(DEVICE_PATH)
+        self.assertEqual(backend._register_agent.await_count, 2)
+
+    async def test_mid_pair_disconnect_cannot_move_requests_to_another_bus(self):
+        backend = BlueZBackend()
+        bus = backend.bus = Mock(connected=True)
+        members = []
+
+        async def call(message):
+            members.append(message.member)
+            if message.member == "GetNameOwner":
+                body = [":1.5"]
+            elif message.member == "GetManagedObjects":
+                body = [{}]
+            else:
+                body = []
+            if message.member == "Pair":
+                backend._disconnect()
+            return Mock(message_type=MessageType.METHOD_RETURN, body=body)
+
+        bus.call = AsyncMock(side_effect=call)
+        with (
+            patch("bluetooth_pairing.MessageBus") as replacement,
+            self.assertRaises(BluetoothConnectionChanged),
+        ):
+            await backend.pair(DEVICE_PATH)
+        replacement.assert_not_called()
+        self.assertNotIn("CancelPairing", members)
+        self.assertNotIn("Set", members)
+        self.assertIsNone(backend.selected)
+
     def pairing_backend(self, failure_member, error, device_state=None):
         backend = BlueZBackend()
         backend.bus = Mock()
@@ -274,16 +354,46 @@ class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
         backend = self.pairing_backend(
             "Pair",
             BluetoothTimeoutError("Pair", 60),
-            {"Paired": Variant("b", True), "Connected": Variant("b", True)},
+            {
+                "Paired": Variant("b", True),
+                "Connected": Variant("b", True),
+                "Bonded": Variant("b", True),
+            },
         )
         result = await backend.pair(DEVICE_PATH)
         self.assertIn("Paired and connected", result)
+        self.assertIn("Pairing saved by the Pi", result)
         methods = [call.args[2] for call in backend.call.await_args_list]
         self.assertIn("GetAll", methods)
         self.assertIn("Set", methods)
         self.assertNotIn("CancelPairing", methods)
         self.assertNotIn("Connect", methods)
         self.assertIsNone(backend.selected)
+
+    async def test_temporary_pairing_does_not_claim_a_saved_bond(self):
+        backend = self.pairing_backend(
+            "Pair",
+            BluetoothTimeoutError("Pair", 60),
+            {"Paired": True, "Bonded": False, "Connected": True},
+        )
+        with self.assertLogs("universal_remote_relay", level="INFO") as captured:
+            result = await backend.pair(DEVICE_PATH)
+        self.assertIn("temporary", result)
+        self.assertNotIn("Pairing saved", result)
+        self.assertNotIn("bond confirmed", " ".join(captured.output).lower())
+        self.assertNotIn(
+            "CancelPairing", [c.args[2] for c in backend.call.await_args_list]
+        )
+
+    async def test_missing_bond_property_is_unverified_not_saved(self):
+        backend = self.pairing_backend(
+            "unused",
+            BluetoothError("unused"),
+            {"Paired": True, "Connected": True},
+        )
+        result = await backend.pair(DEVICE_PATH)
+        self.assertIn("Saved pairing is unverified", result)
+        self.assertNotIn("Pairing saved by the Pi", result)
 
     async def test_pair_timeout_keeps_bond_and_attempts_missing_connection(self):
         backend = self.pairing_backend(
@@ -488,7 +598,8 @@ class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
         await backend.pair(DEVICE_PATH)
         methods = [call.args[2] for call in backend.call.await_args_list]
         self.assertEqual(
-            methods, ["GetManagedObjects", "RegisterAgent", "Pair", "Set", "Connect"]
+            methods,
+            ["GetManagedObjects", "RegisterAgent", "Pair", "GetAll", "Set", "Connect"],
         )
         self.assertNotIn("RequestDefaultAgent", methods)
         pair_call = backend.call.await_args_list[2]

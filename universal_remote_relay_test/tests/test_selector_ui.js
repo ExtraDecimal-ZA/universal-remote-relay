@@ -50,6 +50,13 @@ function state(overrides = {}) {
 }
 
 (async () => {
+  for (const [bonded, expected] of [[true, 'Paired, saved, connected'], [false, 'Paired, temporary, connected'], [null, 'Paired, saved pairing unverified, connected']]) {
+    const h = harness();
+    h.responses.push(response(state({devices: [{id: 'remote', name: 'Xiaomi RC', address: 'test', paired: true, connected: true, bonded}]})));
+    await h.run('loadBluetooth()');
+    const label = h.elements.get('bt-devices').children[0].children[0].textContent;
+    assert(label.includes(expected), `Saved pairing state must be accurate: ${expected}`);
+  }
   {
     const h = harness();
     h.responses.push(response(state({ scanning: true })));

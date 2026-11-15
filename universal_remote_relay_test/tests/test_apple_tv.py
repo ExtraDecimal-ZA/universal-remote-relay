@@ -300,6 +300,33 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
         self.connection.power.turn_on.assert_not_awaited()
         self.connection.power.turn_off.assert_not_awaited()
 
+    async def test_play_pause_response_loss_does_not_undo_applied_toggle(self):
+        await self.pair_controller()
+        playback = {"playing": False}
+
+        async def toggle_then_lose_response():
+            playback["playing"] = not playback["playing"]
+            raise OSError("response lost after playback changed")
+
+        self.connection.remote_control.play_pause = AsyncMock(
+            side_effect=toggle_then_lose_response
+        )
+        with self.assertRaisesRegex(
+            AppleTVRelayError, "Check playback before retrying"
+        ):
+            await self.controller.send_key("MEDIA_PLAY_PAUSE")
+        self.assertTrue(playback["playing"])
+        self.connection.remote_control.play_pause.assert_awaited_once()
+        self.assertEqual(self.controller.status()["state"], "error")
+
+    async def test_successful_play_pause_is_sent_once(self):
+        await self.pair_controller()
+        self.connection.remote_control.play_pause = AsyncMock()
+        self.assertEqual(
+            await self.controller.send_key("MEDIA_PLAY_PAUSE"), "play_pause"
+        )
+        self.connection.remote_control.play_pause.assert_awaited_once()
+
     async def test_changed_target_cannot_use_previous_connection(self):
         await self.pair_controller()
         await self.controller.send_key("DPAD_UP")
