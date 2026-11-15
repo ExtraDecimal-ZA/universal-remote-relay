@@ -50,6 +50,30 @@ function state(overrides = {}) {
 }
 
 (async () => {
+  {
+    const h = harness();
+    const from = source.indexOf('function showPairing(');
+    const to = source.indexOf('async function pairingRequest', from);
+    assert(from >= 0 && to > from);
+    h.run(`
+      const pairStart = document.getElementById('pair-start');
+      const pairStop = document.getElementById('pair-stop');
+      const pairStatus = document.getElementById('pair-status');
+      const pairCode = document.getElementById('pair-code');
+      const pairDetail = document.getElementById('pair-detail');
+      const remotes = document.getElementById('remotes');
+      let pairingPoll = null;
+      const setInterval = () => 1;
+      function loadPairing() {}
+    `);
+    vm.runInContext(source.slice(from, to), h.context);
+    h.run(`showPairing({state: 'pairing_error', message: 'Pairing confirmation failed. Reconnect and retry.',
+      paired: true, active: true, pairing_active: false, pairing_code: '', remotes: []})`);
+    assert.equal(h.elements.get('pair-status').className, 'error', 'Saved trust must not hide confirmation failure');
+    assert(h.elements.get('pair-status').textContent.includes('confirmation failed'));
+    assert.equal(h.elements.get('pair-start').disabled, false, 'The user must be able to reopen pairing');
+    assert.equal(h.elements.get('pair-code').hidden, true);
+  }
   for (const [bonded, expected] of [[true, 'Paired, saved, connected'], [false, 'Paired, temporary, connected'], [null, 'Paired, saved pairing unverified, connected']]) {
     const h = harness();
     h.responses.push(response(state({devices: [{id: 'remote', name: 'Xiaomi RC', address: 'test', paired: true, connected: true, bonded}]})));
