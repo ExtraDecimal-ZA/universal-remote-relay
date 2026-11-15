@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.15 - Unreleased
+## 0.4.15 - 2026-11-15
 
 - Drop a pending Apple TV command if the saved target's identity or pairing
   changes while connecting or before a transport retry. A Power retry cannot
