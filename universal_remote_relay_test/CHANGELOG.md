@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.15 - Unreleased
+
+- Drop a pending Apple TV command if the saved target's identity or pairing
+  changes while connecting or before a transport retry. A Power retry cannot
+  move to another selected TV, even if that TV has since been paired.
+- Keep display-name and address changes compatible with the same saved identity.
+- Add four regressions for target changes, navigation and Power retries, and
+  informational name/address updates during connection.
+- Preserve phone trust, Bluetooth behavior, stable v0.4.6, hostnames and ports.
+
 ## 0.4.14 — 2026-11-15
 
 - Distinguish saved phone trust from a successfully sent final pairing

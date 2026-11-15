@@ -273,7 +273,11 @@ class AppleTVController:
             for attempt in range(2):
                 command_started = False
                 try:
+                    await self._validate_command_target(target.identifier)
                     connection = await self._ensure_connected()
+                    await self._validate_command_target(
+                        target.identifier, connected=True
+                    )
                     if resolved_action == "power_toggle":
                         power_state = connection.power.power_state
                         if power_state == PowerState.On:
@@ -321,6 +325,27 @@ class AppleTVController:
                             "Could not send the command; check Apple TV pairing."
                         ) from error
             raise AssertionError("unreachable")
+
+    async def _validate_command_target(
+        self, identifier: str, *, connected: bool = False
+    ) -> None:
+        """Drop an in-flight command if its selected, paired identity changes."""
+        try:
+            target = load_apple_target(self.target_path)
+            valid = (
+                target.identifier == identifier
+                and self._is_paired_target(target)
+                and (not connected or self._connection_identifier == identifier)
+            )
+        except AppleTVRelayError:
+            valid = False
+        if not valid:
+            await self._disconnect()
+            message = "The selected Apple TV changed. Check its pairing, then retry the command."
+            self._state = replace(
+                self._state, state="error", message=message, connected=False
+            )
+            raise AppleTVRelayError(message)
 
     async def close(self) -> None:
         await self.cancel_pairing()

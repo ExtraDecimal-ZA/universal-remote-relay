@@ -353,6 +353,85 @@ class AppleTVControllerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(self.scan_calls[0]["identifier"], "stable-id")
 
+    async def test_target_change_during_connect_drops_power_command(self):
+        await self.pair_controller()
+
+        async def connect(config, loop, **options):
+            del config, loop, options
+            payload = json.loads(self.target.read_text(encoding="utf-8"))
+            payload["identifier"] = "different-id"
+            self.target.write_text(json.dumps(payload), encoding="utf-8")
+            return self.connection
+
+        self.controller.connect_func = connect
+        with self.assertRaisesRegex(AppleTVRelayError, "selected Apple TV changed"):
+            await self.controller.send_key("POWER")
+
+        self.connection.power.turn_on.assert_not_awaited()
+        self.connection.power.turn_off.assert_not_awaited()
+        self.assertTrue(self.connection.closed)
+        self.assertFalse(self.controller.status()["paired"])
+        self.assertFalse(self.controller.status()["connected"])
+
+    async def test_target_change_before_retry_cannot_control_unpaired_target(self):
+        await self.pair_controller()
+
+        async def up_then_change_target():
+            payload = json.loads(self.target.read_text(encoding="utf-8"))
+            payload["identifier"] = "different-id"
+            self.target.write_text(json.dumps(payload), encoding="utf-8")
+            raise OSError("connection lost during target change")
+
+        self.connection.remote_control.up = AsyncMock(side_effect=up_then_change_target)
+        other_connection = FakeConnection()
+        self.controller.connect_func = AsyncMock(
+            side_effect=[self.connection, other_connection]
+        )
+        with self.assertRaisesRegex(AppleTVRelayError, "selected Apple TV changed"):
+            await self.controller.send_key("DPAD_UP")
+
+        self.controller.connect_func.assert_awaited_once()
+        self.assertEqual(other_connection.remote_control.actions, [])
+
+    async def test_power_retry_cannot_switch_to_another_paired_target(self):
+        await self.pair_controller()
+
+        async def sleep_then_change_target():
+            payload = json.loads(self.target.read_text(encoding="utf-8"))
+            payload["identifier"] = "different-id"
+            self.target.write_text(json.dumps(payload), encoding="utf-8")
+            self.controller._save_paired_target_identifier("different-id")
+            raise OSError("response lost during target change")
+
+        self.connection.power.turn_off.side_effect = sleep_then_change_target
+        other_connection = FakeConnection()
+        self.controller.connect_func = AsyncMock(
+            side_effect=[self.connection, other_connection]
+        )
+        with self.assertRaisesRegex(AppleTVRelayError, "selected Apple TV changed"):
+            await self.controller.send_key("POWER")
+
+        self.connection.power.turn_off.assert_awaited_once()
+        self.controller.connect_func.assert_awaited_once()
+        other_connection.power.turn_on.assert_not_awaited()
+        other_connection.power.turn_off.assert_not_awaited()
+
+    async def test_name_change_during_connect_keeps_same_target(self):
+        await self.pair_controller()
+
+        async def connect(config, loop, **options):
+            del config, loop, options
+            payload = json.loads(self.target.read_text(encoding="utf-8"))
+            payload["name"] = "Renamed Apple TV"
+            payload["address"] = "192.0.2.11"
+            self.target.write_text(json.dumps(payload), encoding="utf-8")
+            return self.connection
+
+        self.controller.connect_func = connect
+        self.assertEqual(await self.controller.send_key("DPAD_UP"), "up")
+        self.assertEqual(self.connection.remote_control.actions, ["up"])
+        self.assertFalse(self.connection.closed)
+
     async def test_changed_address_falls_back_to_stable_identifier(self):
         calls = []
 

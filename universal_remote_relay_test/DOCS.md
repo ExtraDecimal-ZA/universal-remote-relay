@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.14
+# Universal Remote Relay v0.4.15
 
 Release notes are included in this add-on's `CHANGELOG.md` and are shown by
 Home Assistant when an update is available.
@@ -31,6 +31,11 @@ selection and display are handled by the Web UI. An existing v0.4.2 target is
 migrated automatically before the retired Configuration fields are removed.
 Discovery runs only from the Web UI; there is no startup scan or duplicate
 configuration toggle.
+
+If the selected device changes while a phone command is connecting or retrying,
+that pending command is dropped. Check the current target's pairing and press
+the button again. Renaming the same device or changing its address does not
+invalidate its saved identity.
 
 ## Pair the relay with the Apple TV
 
