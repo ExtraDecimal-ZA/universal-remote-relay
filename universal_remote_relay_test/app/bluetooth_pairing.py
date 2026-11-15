@@ -23,6 +23,30 @@ class BluetoothError(RuntimeError):
     """A recoverable host Bluetooth error safe to display in Ingress."""
 
 
+class BlueZRequestError(BluetoothError):
+    """A rejected D-Bus method, distinct from an unanswered request."""
+
+    def __init__(self, member, error_name):
+        self.member = member
+        self.error_name = error_name
+        if error_name == "org.bluez.Error.InProgress":
+            if member == "Pair":
+                message = (
+                    "The Pi is already pairing or connecting this remote. "
+                    "Wait for that attempt to finish, then retry pairing."
+                )
+            else:
+                message = (
+                    f"Pi Bluetooth is busy ({member}). Wait a few seconds, then retry."
+                )
+        else:
+            message = (
+                f"Bluetooth {member} failed ({error_name}). "
+                "Check pairing mode and host permissions."
+            )
+        super().__init__(message)
+
+
 class BlueZBackend:
     def __init__(self):
         self.bus = None
@@ -81,9 +105,8 @@ class BlueZBackend:
                 "Could not communicate with Pi Bluetooth. Restart the add-on and retry."
             ) from error
         if reply.message_type == MessageType.ERROR:
-            raise BluetoothError(
-                f"Bluetooth request failed ({reply.error_name}). Check pairing mode and host permissions."
-            )
+            LOG.warning("Bluetooth %s rejected: %s", member, reply.error_name)
+            raise BlueZRequestError(member, reply.error_name)
         return reply.body
 
     async def objects(self):
@@ -94,7 +117,24 @@ class BlueZBackend:
         )[0]
 
     async def start_scan(self, adapter):
-        await self.call(adapter, ADAPTER, "StartDiscovery")
+        for attempt in range(2):
+            try:
+                await self.call(adapter, ADAPTER, "StartDiscovery")
+                return
+            except BlueZRequestError as error:
+                if error.error_name == "org.bluez.Error.InProgress":
+                    # An unanswered StartDiscovery can leave our session active.
+                    # Release our client only, never another application's scan.
+                    await self.close()
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
+                        continue
+                raise
+            except BaseException:
+                # A timeout/cancellation does not prove BlueZ rejected the scan.
+                # Release any session that may succeed after we stop waiting.
+                await self.close()
+                raise
 
     async def stop_scan(self, adapter):
         await self.call(adapter, ADAPTER, "StopDiscovery")
@@ -166,7 +206,18 @@ class BlueZBackend:
             self.agent_registered = True
         self.selected = path
         try:
-            await self.call(path, DEVICE, "Pair", timeout=60)
+            try:
+                await self.call(path, DEVICE, "Pair", timeout=60)
+            except BlueZRequestError:
+                # BlueZ rejected our request. InProgress may belong to a
+                # different application, so do not cancel its pairing.
+                raise
+            except BaseException:
+                # Our accepted request may still be running after a timeout
+                # or cancellation. Only this case needs CancelPairing.
+                with suppress(BluetoothError):
+                    await self.call(path, DEVICE, "CancelPairing")
+                raise
             await self.call(
                 path,
                 "org.freedesktop.DBus.Properties",
@@ -179,10 +230,6 @@ class BlueZBackend:
             except BluetoothError:
                 return "Paired with the Pi; connection is not ready. Bluetooth button forwarding is not enabled yet."
             return "Paired and connected to the Pi. Bluetooth button forwarding is not enabled yet."
-        except BaseException:
-            with suppress(BluetoothError):
-                await self.call(path, DEVICE, "CancelPairing")
-            raise
         finally:
             self.selected = None
 

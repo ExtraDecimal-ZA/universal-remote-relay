@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.9 — 2026-11-15
+
+- Identify which Bluetooth operation was rejected and report InProgress as a
+  busy operation rather than suggesting a permissions problem.
+- Do not cancel another pairing or connection attempt when BlueZ rejects our
+  Pair request. Cancel only an unanswered request initiated by this app.
+- Release this app's discovery client after an unanswered scan; recover a busy
+  discovery session with one bounded retry without resetting host Bluetooth.
+- Add regression coverage for busy/rejected pairing, timeout/cancellation,
+  bounded scan recovery, and preserving completed bonds after later failures.
+- Physical Xiaomi pairing remains unverified; Bluetooth button forwarding is
+  still not enabled.
+
 ## 0.4.8 — 2026-11-14
 
 - Release failed/cancelled Bluetooth connections and always disconnect during

@@ -7,6 +7,18 @@ host BlueZ D-Bus access. The Pi retains Bluetooth bonds; the app's phone trust
 store remains separate. No-PIN pairing is implemented, but has not yet been
 verified with the physical Xiaomi. Bluetooth input forwarding is not enabled.
 
+## Busy pairing recovery
+
+If **Pair with Pi** reports `org.bluez.Error.InProgress`, BlueZ already has a
+pairing or connection attempt for that remote. Wait for it to finish before
+trying again; do not keep pressing Pair or remove existing Bluetooth devices.
+In v0.4.9 the relay reports this as busy and leaves the existing attempt alone.
+The Web UI device list shows whether the Pi has subsequently paired it.
+
+If it is still unpaired, put the remote back in pairing mode, scan again, and
+select Pair once. Record the operation-specific error and Xiaomi model code
+if it remains busy. A successful bond does not enable Bluetooth button input.
+
 ## Hardware evidence needed before implementation
 
 1. Read the Xiaomi model code under the battery cover (often an XMRM code).
