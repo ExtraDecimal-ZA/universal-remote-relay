@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.10
+# Universal Remote Relay v0.4.11
 
 This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth
@@ -97,6 +97,16 @@ an unpowered adapter automatically or remove existing host Bluetooth devices.
 If Bluetooth is unavailable or access is denied, the panel reports it while
 phone and Apple TV functions continue. No Bluetooth scan runs on startup.
 
+The device list distinguishes **saved**, **temporary**, and **saved pairing
+unverified**. Only BlueZ's confirmed stored bond is labelled saved. Older host
+versions that do not report bond state are shown as unverified; the relay does
+not treat a current connection as proof that pairing will survive a restart.
+
+Pairing setup can recover once if the host connection changes before it is
+ready. A disconnect during pairing fails promptly rather than continuing on
+a different connection without the registered pairing agent. Retry after
+Bluetooth is available again; saved phone and Apple TV credentials are retained.
+
 Timeout messages identify the operation and its time limit. A Pair timeout
 also reports the host's paired/connected state and the last pairing-agent step,
 without logging device addresses, PINs, or passkeys. If the Pi confirms it has
@@ -135,3 +145,8 @@ events and make them available to the relay. Physical pairing is still pending.
 
 Keep **Start on boot**, **Watchdog**, and **Auto update** disabled until this
 version passes the Raspberry Pi acceptance test.
+
+If a Play/Pause response is lost, check the Apple TV's actual playback state
+before pressing it again. The relay does not automatically repeat an uncertain
+toggle, which could undo an action already applied. Explicit power sleep/wake
+retries retain their existing behavior.

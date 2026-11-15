@@ -271,6 +271,7 @@ class AppleTVController:
             # explicit operation, never reverse a possibly successful command.
             resolved_action = action
             for attempt in range(2):
+                command_started = False
                 try:
                     connection = await self._ensure_connected()
                     if resolved_action == "power_toggle":
@@ -289,6 +290,7 @@ class AppleTVController:
                         else connection.remote_control
                     )
                     method = getattr(interface, resolved_action)
+                    command_started = True
                     await method()
                     self._state = replace(
                         self._state,
@@ -302,6 +304,12 @@ class AppleTVController:
                     raise
                 except Exception as error:
                     await self._disconnect()
+                    if action == "play_pause" and command_started:
+                        message = "Play/Pause may have reached the Apple TV. Check playback before retrying."
+                        self._state = replace(
+                            self._state, state="error", message=message, connected=False
+                        )
+                        raise AppleTVRelayError(message) from error
                     if attempt:
                         self._state = replace(
                             self._state,

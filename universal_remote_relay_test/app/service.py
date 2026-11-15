@@ -15,7 +15,7 @@ from selector import create_app
 from target_store import LEGACY_OPTION_KEYS, migrate_legacy_target, read_options
 
 LOG = logging.getLogger("universal_remote_relay")
-VERSION = "0.4.10"
+VERSION = "0.4.11"
 LOG_LEVELS = {"debug", "info", "warning", "error"}
 
 

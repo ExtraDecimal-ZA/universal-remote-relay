@@ -96,7 +96,7 @@ INDEX_HTML = """<!doctype html>
   <p class="muted">Navigation, playback, and Power are forwarded. Power sleeps an awake Apple TV or wakes a sleeping one when its power state is known. Text and app-link contents remain blocked.</p>
   <section>
     <h2>Add Bluetooth remote</h2>
-    <p class="muted">Put your Xiaomi remote in Bluetooth pairing mode, then scan and select it below. Pairing is saved by the Pi. This step pairs the remote only; Bluetooth buttons do not control the Apple TV yet.</p>
+    <p class="muted">Put your Xiaomi remote in Bluetooth pairing mode, then scan and select it below. The list shows whether the Pi has confirmed a saved pairing. This step pairs the remote only; Bluetooth buttons do not control the Apple TV yet.</p>
     <p class="muted">The list can include devices remembered by the Pi. A listed name does not confirm the remote is awake or in pairing mode.</p>
     <button id="bt-scan" type="button">Scan for Bluetooth devices</button>
     <button id="bt-stop" type="button" disabled>Stop scan</button>
@@ -148,7 +148,9 @@ function showBluetooth(state) {
   for (const device of state.devices || []) {
     const row = document.createElement('div');
     const label = document.createElement('span');
-    label.textContent = `${device.name} · ${device.address} · ${device.paired ? (device.connected ? 'Paired, connected' : 'Paired') : 'Not paired'} `;
+    const persistence = device.bonded === true ? 'saved' : device.bonded === false ? 'temporary' : 'saved pairing unverified';
+    const pairing = device.paired ? `Paired, ${persistence}${device.connected ? ', connected' : ''}` : 'Not paired';
+    label.textContent = `${device.name} · ${device.address} · ${pairing} `;
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = device.paired ? 'Paired with Pi' : 'Pair with Pi';

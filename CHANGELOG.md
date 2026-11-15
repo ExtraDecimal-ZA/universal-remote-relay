@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.11 — 2026-11-15
+
+- Restore the Bluetooth agent and owner on the current bus after a setup
+  reconnect, with one bounded retry. Bind an active pairing to its original
+  connection and fail promptly if that connection changes.
+- Check BlueZ Bonded separately from Paired. Display saved, temporary, or
+  unverified pairing accurately, and stop logging temporary pairing as a
+  confirmed saved bond.
+- Do not resend Play/Pause after an uncertain response: the Apple TV may have
+  already applied the toggle. Tell the user to check playback before retrying.
+- Add seven Python regression tests and Web UI checks for the three audit
+  findings. Stable remains unchanged at v0.4.6.
+
 ## 0.4.10 — 2026-11-15
 
 - Name the Bluetooth operation and time limit in timeout messages instead of
