@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.14
+# Universal Remote Relay v0.4.15
 
 Release notes are included in this add-on's `CHANGELOG.md` and are shown by
 Home Assistant when an update is available.
@@ -7,6 +7,11 @@ This experimental add-on provides a private, Home Assistant-authenticated
 single-target selector. Stable v0.4.6 is a separate add-on without Bluetooth
 pairing. Keep only one relay running because they share phone receiver ports;
 their protected pairing data is separate.
+
+The Web UI refreshes phone status every five seconds when idle and every second
+during pairing or a connected phone session. Phone and Bluetooth status polling
+pause while the page is hidden and refresh when you return. The phone receiver
+and command forwarding continue running independently of the Web UI.
 
 ## Select one target
 
@@ -31,6 +36,11 @@ selection and display are handled by the Web UI. An existing v0.4.2 target is
 migrated automatically before the retired Configuration fields are removed.
 Discovery runs only from the Web UI; there is no startup scan or duplicate
 configuration toggle.
+
+If the selected device changes while a phone command is connecting or retrying,
+that pending command is dropped. Check the current target's pairing and press
+the button again. Renaming the same device or changing its address does not
+invalidate its saved identity.
 
 ## Pair the relay with the Apple TV
 
