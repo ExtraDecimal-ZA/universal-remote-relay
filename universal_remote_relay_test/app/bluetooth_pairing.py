@@ -23,6 +23,23 @@ class BluetoothError(RuntimeError):
     """A recoverable host Bluetooth error safe to display in Ingress."""
 
 
+class BluetoothTimeoutError(BluetoothError):
+    """A timeout identified by operation, without provider or device secrets."""
+
+    def __init__(self, member, seconds, detail=""):
+        self.member = member
+        self.seconds = seconds
+        guidance = (
+            "Wake the remote, put it back in pairing mode, scan again, and retry once."
+            if member == "Pair"
+            else "The Pi Bluetooth service did not respond. Check its status before retrying."
+        )
+        super().__init__(
+            f"Bluetooth {member} timed out after {seconds:g} seconds. {guidance}"
+            + (f" {detail}" if detail else "")
+        )
+
+
 class BlueZRequestError(BluetoothError):
     """A rejected D-Bus method, distinct from an unanswered request."""
 
@@ -53,6 +70,7 @@ class BlueZBackend:
         self.owner = ""
         self.selected = None
         self.agent_registered = False
+        self.last_agent_event = "none"
         self.bus_lock = asyncio.Lock()
 
     def _disconnect(self):
@@ -97,9 +115,8 @@ class BlueZBackend:
                 timeout,
             )
         except TimeoutError as error:
-            raise BluetoothError(
-                "Bluetooth request timed out. Put the remote in pairing mode and retry."
-            ) from error
+            LOG.warning("Bluetooth %s timed out after %g seconds", member, timeout)
+            raise BluetoothTimeoutError(member, timeout) from error
         except Exception as error:
             raise BluetoothError(
                 "Could not communicate with Pi Bluetooth. Restart the add-on and retry."
@@ -152,6 +169,17 @@ class BlueZBackend:
                 self.agent_registered = False
             return Message.new_method_return(message)
         selected = bool(message.body and message.body[0] == self.selected)
+        if selected and message.member in {
+            "RequestAuthorization",
+            "AuthorizeService",
+            "RequestPinCode",
+            "RequestPasskey",
+            "DisplayPinCode",
+            "DisplayPasskey",
+            "RequestConfirmation",
+        }:
+            self.last_agent_event = message.member
+            LOG.info("Bluetooth pairing agent step=%s", message.member)
         if selected and (
             message.member == "RequestAuthorization"
             or (
@@ -170,19 +198,22 @@ class BlueZBackend:
     async def pair(self, path):
         # Register only our application agent, never replace the host default.
         await self.objects()
-        reply = await asyncio.wait_for(
-            self.bus.call(
-                Message(
-                    destination="org.freedesktop.DBus",
-                    path="/org/freedesktop/DBus",
-                    interface="org.freedesktop.DBus",
-                    member="GetNameOwner",
-                    signature="s",
-                    body=["org.bluez"],
-                )
-            ),
-            8,
-        )
+        try:
+            reply = await asyncio.wait_for(
+                self.bus.call(
+                    Message(
+                        destination="org.freedesktop.DBus",
+                        path="/org/freedesktop/DBus",
+                        interface="org.freedesktop.DBus",
+                        member="GetNameOwner",
+                        signature="s",
+                        body=["org.bluez"],
+                    )
+                ),
+                8,
+            )
+        except TimeoutError as error:
+            raise BluetoothTimeoutError("GetNameOwner", 8) from error
         if reply.message_type == MessageType.ERROR:
             raise BluetoothError("The Pi Bluetooth service is unavailable.")
         owner = reply.body[0]
@@ -205,6 +236,8 @@ class BlueZBackend:
                 raise
             self.agent_registered = True
         self.selected = path
+        self.last_agent_event = "none"
+        paired_state = None
         try:
             try:
                 await self.call(path, DEVICE, "Pair", timeout=60)
@@ -212,6 +245,35 @@ class BlueZBackend:
                 # BlueZ rejected our request. InProgress may belong to a
                 # different application, so do not cancel its pairing.
                 raise
+            except BluetoothTimeoutError as error:
+                # Pair includes service discovery. The bond may already exist
+                # even though the method has not returned; check before cancel.
+                with suppress(BluetoothError):
+                    paired_state = (
+                        await self.call(
+                            path,
+                            "org.freedesktop.DBus.Properties",
+                            "GetAll",
+                            "s",
+                            [DEVICE],
+                        )
+                    )[0]
+                paired = value(paired_state or {}, "Paired", None)
+                connected = value(paired_state or {}, "Connected", None)
+                paired = paired if isinstance(paired, bool) else None
+                connected = connected if isinstance(connected, bool) else None
+                detail = (
+                    f"Host state: paired={paired}, connected={connected}; "
+                    f"agent step={self.last_agent_event}."
+                )
+                LOG.warning("Bluetooth Pair timeout state: %s", detail)
+                if paired is not True:
+                    with suppress(BluetoothError):
+                        await self.call(path, DEVICE, "CancelPairing")
+                    raise BluetoothTimeoutError(
+                        "Pair", error.seconds, detail
+                    ) from error
+                LOG.info("Bluetooth bond confirmed after Pair timeout; keeping pairing")
             except BaseException:
                 # Our accepted request may still be running after a timeout
                 # or cancellation. Only this case needs CancelPairing.
@@ -225,6 +287,8 @@ class BlueZBackend:
                 "ssv",
                 [DEVICE, "Trusted", Variant("b", True)],
             )
+            if value(paired_state or {}, "Connected", False) is True:
+                return "Paired and connected to the Pi. Bluetooth button forwarding is not enabled yet."
             try:
                 await self.call(path, DEVICE, "Connect", timeout=15)
             except BluetoothError:
@@ -430,7 +494,12 @@ class BluetoothPairing:
             self.message = await self.backend.pair(identifier)
             self.state = "paired"
         except Exception as error:  # noqa: BLE001 - isolate host/provider failures; redact details
-            LOG.warning("Bluetooth pairing failed: %s", type(error).__name__)
+            LOG.warning(
+                "Bluetooth pairing failed: %s",
+                str(error)
+                if isinstance(error, BluetoothError)
+                else type(error).__name__,
+            )
             self.state = "error"
             self.message = (
                 str(error)

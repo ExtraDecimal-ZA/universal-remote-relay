@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.10 — 2026-11-15
+
+- Name the Bluetooth operation and time limit in timeout messages instead of
+  returning the same pairing-mode suggestion for every request.
+- After a Pair timeout, read the selected device's paired/connected state.
+  Keep a confirmed pairing and complete trust/connection setup; cancel an
+  unfinished request only when no pairing is confirmed.
+- Log the safe timeout context and pairing-agent step without device addresses,
+  PINs, passkeys, or raw provider messages. Preserve unknown state as unknown.
+- Clarify that remembered devices in the list may be asleep. Record XMRM-006
+  as the physical test model; compatibility and button input remain unverified.
+- Stable remains pinned to the unchanged original v0.4.6 runtime.
+
 ## Stable channel promotion — 2026-11-15
 
 - Promote the original v0.4.6 runtime to the stable `universal_remote_relay`

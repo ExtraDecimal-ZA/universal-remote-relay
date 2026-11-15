@@ -8,7 +8,7 @@ Home Assistant add-on project for Raspberry Pi 3B+ running
 | Channel | Version | Add-on ID | Scope |
 | --- | --- | --- | --- |
 | Stable | **0.4.6** | `universal_remote_relay` | Apple TV pairing and phone remotes; original v0.4.6 runtime |
-| Experimental | **0.4.9** | `universal_remote_relay_test` | Newer development, including Bluetooth pairing |
+| Experimental | **0.4.10** | `universal_remote_relay_test` | Newer development, including Bluetooth pairing |
 
 Stable replaces the v0.1.3 diagnostic-only entry. It reuses the original
 published v0.4.6 ARM64 image without rebuilding it on the Pi. The historical
@@ -25,9 +25,9 @@ network relay.
 
 See [stable instructions](universal_remote_relay/DOCS.md).
 
-## Experimental release: v0.4.9
+## Experimental release: v0.4.10
 
-v0.4.9 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.10 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -93,7 +93,7 @@ selection.
 
 The stable channel is pinned to v0.4.6 at the user's request. Hardware-specific
 limitations above still apply; the stable label does not establish complete
-Google TV emulation or Xiaomi compatibility. Version 0.4.9 stays experimental
+Google TV emulation or Xiaomi compatibility. Version 0.4.10 stays experimental
 until Bluetooth pairing, multiple-phone operation, power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
@@ -111,7 +111,7 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay v0.4.9**.
+1. Install and start **Universal Remote Relay v0.4.10**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.

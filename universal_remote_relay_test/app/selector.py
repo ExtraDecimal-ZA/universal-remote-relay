@@ -97,6 +97,7 @@ INDEX_HTML = """<!doctype html>
   <section>
     <h2>Add Bluetooth remote</h2>
     <p class="muted">Put your Xiaomi remote in Bluetooth pairing mode, then scan and select it below. Pairing is saved by the Pi. This step pairs the remote only; Bluetooth buttons do not control the Apple TV yet.</p>
+    <p class="muted">The list can include devices remembered by the Pi. A listed name does not confirm the remote is awake or in pairing mode.</p>
     <button id="bt-scan" type="button">Scan for Bluetooth devices</button>
     <button id="bt-stop" type="button" disabled>Stop scan</button>
     <div id="bt-status" class="muted">Checking Pi Bluetooth…</div>

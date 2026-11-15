@@ -15,10 +15,11 @@ from bluetooth_pairing import (
     DEVICE,
     BluetoothError,
     BluetoothPairing,
+    BluetoothTimeoutError,
     BlueZBackend,
     BlueZRequestError,
 )
-from dbus_next import Message, MessageType
+from dbus_next import Message, MessageType, Variant
 from selector import create_app
 
 ADAPTER_PATH = "/org/bluez/hci0"
@@ -199,10 +200,33 @@ class BlueZAgentTest(unittest.TestCase):
     def test_pin_request_is_rejected_instead_of_inventing_a_pin(self):
         reply = self.backend.agent_message(self.message("RequestPinCode"))
         self.assertEqual(reply.message_type, MessageType.ERROR)
+        self.assertEqual(self.backend.last_agent_event, "RequestPinCode")
+
+    def test_agent_diagnostics_never_log_passkeys(self):
+        message = Message(
+            path=AGENT_PATH,
+            interface="org.bluez.Agent1",
+            member="RequestConfirmation",
+            sender=":1.5",
+            signature="ou",
+            body=[DEVICE_PATH, 654321],
+            serial=1,
+        )
+        with self.assertLogs("universal_remote_relay", level="INFO") as captured:
+            reply = self.backend.agent_message(message)
+        self.assertEqual(reply.message_type, MessageType.ERROR)
+        self.assertEqual(self.backend.last_agent_event, "RequestConfirmation")
+        self.assertIn("step=RequestConfirmation", " ".join(captured.output))
+        self.assertNotIn("654321", " ".join(captured.output))
+        self.assertNotIn(DEVICE_PATH, " ".join(captured.output))
+
+    def test_other_devices_cannot_change_agent_diagnostics(self):
+        self.backend.agent_message(self.message("RequestPinCode", path="/other"))
+        self.assertEqual(self.backend.last_agent_event, "none")
 
 
 class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
-    def pairing_backend(self, failure_member, error):
+    def pairing_backend(self, failure_member, error, device_state=None):
         backend = BlueZBackend()
         backend.bus = Mock()
         backend.bus.call = AsyncMock(
@@ -212,10 +236,110 @@ class BlueZBackendTest(unittest.IsolatedAsyncioTestCase):
         async def call(path, interface, member, *args, **kwargs):
             if member == failure_member:
                 raise error
+            if member == "GetAll":
+                return [device_state or {}]
             return [{}]
 
         backend.call = AsyncMock(side_effect=call)
         return backend
+
+    async def test_method_timeouts_name_operation_and_duration(self):
+        for member, seconds in (("Pair", 60), ("RegisterAgent", 8)):
+            with self.subTest(member=member):
+                backend = BlueZBackend()
+                backend.bus = Mock(connected=True)
+                backend.bus.call = AsyncMock(
+                    side_effect=TimeoutError("provider secret")
+                )
+                with self.assertRaises(BluetoothTimeoutError) as raised:
+                    await backend.call(DEVICE_PATH, DEVICE, member, timeout=seconds)
+                self.assertEqual(raised.exception.member, member)
+                self.assertEqual(raised.exception.seconds, seconds)
+                self.assertIn(
+                    f"{member} timed out after {seconds} seconds", str(raised.exception)
+                )
+                self.assertNotIn("provider secret", str(raised.exception))
+                if member != "Pair":
+                    self.assertNotIn("pairing mode", str(raised.exception))
+
+    async def test_owner_lookup_timeout_has_operation_context(self):
+        backend = self.pairing_backend("unused", BluetoothError("unused"))
+        backend.bus.call.side_effect = TimeoutError()
+        with self.assertRaisesRegex(BluetoothTimeoutError, "GetNameOwner.*8 seconds"):
+            await backend.pair(DEVICE_PATH)
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertNotIn("Pair", methods)
+
+    async def test_pair_timeout_keeps_confirmed_connected_bond(self):
+        backend = self.pairing_backend(
+            "Pair",
+            BluetoothTimeoutError("Pair", 60),
+            {"Paired": Variant("b", True), "Connected": Variant("b", True)},
+        )
+        result = await backend.pair(DEVICE_PATH)
+        self.assertIn("Paired and connected", result)
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertIn("GetAll", methods)
+        self.assertIn("Set", methods)
+        self.assertNotIn("CancelPairing", methods)
+        self.assertNotIn("Connect", methods)
+        self.assertIsNone(backend.selected)
+
+    async def test_pair_timeout_keeps_bond_and_attempts_missing_connection(self):
+        backend = self.pairing_backend(
+            "Pair",
+            BluetoothTimeoutError("Pair", 60),
+            {"Paired": True, "Connected": False},
+        )
+        result = await backend.pair(DEVICE_PATH)
+        self.assertIn("Paired and connected", result)
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertIn("Connect", methods)
+        self.assertNotIn("CancelPairing", methods)
+
+    async def test_pair_timeout_without_bond_cancels_and_reports_safe_state(self):
+        backend = self.pairing_backend(
+            "Pair",
+            BluetoothTimeoutError("Pair", 60),
+            {"Paired": False, "Connected": False},
+        )
+        with self.assertRaises(BluetoothTimeoutError) as raised:
+            await backend.pair(DEVICE_PATH)
+        self.assertIn("paired=False, connected=False", str(raised.exception))
+        self.assertIn("agent step=none", str(raised.exception))
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertEqual(methods.count("CancelPairing"), 1)
+        self.assertNotIn("Set", methods)
+        self.assertNotIn("Connect", methods)
+
+    async def test_pair_timeout_unknown_state_is_never_reported_as_paired(self):
+        backend = self.pairing_backend(
+            "Pair",
+            BluetoothTimeoutError("Pair", 60),
+            {"Paired": "private detail", "Connected": "private detail"},
+        )
+        with self.assertRaises(BluetoothTimeoutError) as raised:
+            await backend.pair(DEVICE_PATH)
+        self.assertIn("paired=None, connected=None", str(raised.exception))
+        self.assertNotIn("private detail", str(raised.exception))
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertIn("CancelPairing", methods)
+
+    async def test_pair_timeout_state_lookup_failure_preserves_original_failure(self):
+        backend = self.pairing_backend("Pair", BluetoothTimeoutError("Pair", 60))
+        original = backend.call.side_effect
+
+        async def call(path, interface, member, *args, **kwargs):
+            if member == "GetAll":
+                raise BluetoothTimeoutError("GetAll", 8)
+            return await original(path, interface, member, *args, **kwargs)
+
+        backend.call.side_effect = call
+        with self.assertRaisesRegex(BluetoothTimeoutError, "Pair timed out after 60"):
+            await backend.pair(DEVICE_PATH)
+        methods = [call.args[2] for call in backend.call.await_args_list]
+        self.assertIn("CancelPairing", methods)
+        self.assertNotIn("Set", methods)
 
     async def test_busy_reply_preserves_operation_without_exposing_provider_body(self):
         backend = BlueZBackend()
