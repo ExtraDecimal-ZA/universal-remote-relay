@@ -21,8 +21,10 @@ from androidtvremote2.remotemessage_pb2 import (
     RemoteKeyCode,
     RemoteMessage,
 )
+from apple_tv import AppleTVRelayError
 from OpenSSL import SSL, crypto
 from pairing_probe import (
+    MAX_PENDING_COMMANDS,
     PairingProbe,
     PairingProbeError,
     _generate_identity,
@@ -294,6 +296,105 @@ class PairingRoundTripTest(unittest.TestCase):
             for thread in threads:
                 thread.join(timeout=5)
                 self.assertFalse(thread.is_alive())
+
+    def test_silent_phone_expires_but_saved_trust_allows_reconnect(self):
+        identifier = self.probe.remote_store.add(
+            crypto.load_certificate(crypto.FILETYPE_PEM, self.client_cert.read_bytes()),
+            "Phone",
+        )
+        self.probe._load_trusted_phone()
+        self.probe._active = True
+        server_socket, client_socket = socket.socketpair()
+        server = threading.Thread(
+            target=self.probe._run_remote_session,
+            args=(server_socket, None),
+            daemon=True,
+        )
+        # Accelerate server heartbeat waits only; use real local mutual TLS.
+        with patch(
+            "pairing_probe.read_delimited",
+            side_effect=lambda connection, **kw: read_delimited(
+                connection, timeout=0.05
+            ),
+        ):
+            server.start()
+            connection = _client_connection(
+                client_socket, self.client_cert, self.client_key
+            )
+            try:
+                for _ in range(3):
+                    read_delimited(connection)
+                for _ in range(2):
+                    ping = RemoteMessage()
+                    ping.ParseFromString(read_delimited(connection))
+                    self.assertTrue(ping.HasField("remote_ping_request"))
+                server.join(timeout=2)
+                self.assertFalse(server.is_alive())
+                self.assertFalse(self.probe.status()["remote_connected"])
+                self.assertEqual(self.probe.status()["connected_remotes"], 0)
+                self.assertIn(identifier, self.probe._trusted_fingerprints)
+            finally:
+                connection.close()
+                self.probe._active = False
+                server.join(timeout=2)
+        replacement = PairingProbe(data_dir=self.root / "relay")
+        replacement._load_trusted_phone()
+        self.probe = replacement
+        self.probe._active = True
+        try:
+            self._run_remote_command(RemoteKeyCode.KEYCODE_DPAD_UP, "DPAD_UP (SHORT)")
+        finally:
+            self.probe._active = False
+
+    def test_healthy_idle_phone_answers_keepalives_and_keeps_connection(self):
+        self.probe.remote_store.add(
+            crypto.load_certificate(crypto.FILETYPE_PEM, self.client_cert.read_bytes()),
+            "Phone",
+        )
+        self.probe._load_trusted_phone()
+        self.probe._active = True
+        server_socket, client_socket = socket.socketpair()
+        server = threading.Thread(
+            target=self.probe._run_remote_session,
+            args=(server_socket, None),
+            daemon=True,
+        )
+        with patch(
+            "pairing_probe.read_delimited",
+            side_effect=lambda connection, **kw: read_delimited(
+                connection, timeout=0.05
+            ),
+        ):
+            server.start()
+            connection = _client_connection(
+                client_socket, self.client_cert, self.client_key
+            )
+            try:
+                for _ in range(3):
+                    read_delimited(connection)
+                # Six rounds exceed the silent client's three-timeout lifetime.
+                for _ in range(6):
+                    ping = RemoteMessage()
+                    ping.ParseFromString(read_delimited(connection))
+                    self.assertTrue(ping.HasField("remote_ping_request"))
+                    response = RemoteMessage()
+                    response.remote_ping_response.val1 = ping.remote_ping_request.val1
+                    write_delimited(connection, response.SerializeToString())
+                self.assertTrue(server.is_alive())
+                self.assertTrue(self.probe.status()["remote_connected"])
+                key = RemoteMessage()
+                key.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_HOME
+                key.remote_key_inject.direction = RemoteDirection.SHORT
+                write_delimited(connection, key.SerializeToString())
+                deadline = time.monotonic() + 2
+                while self.probe.status()["last_command"] != "HOME (SHORT)":
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(0.01)
+            finally:
+                connection.close()
+                self.probe._active = False
+                server.join(timeout=2)
+                self.assertFalse(server.is_alive())
 
 
 class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
@@ -579,6 +680,106 @@ class PersistentReceiverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             probe.status()["last_command"], "TEXT_INPUT (content withheld)"
         )
+
+
+class ForwardingCapacityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_stalled_tv_bounds_commands_and_accepts_input_after_recovery(self):
+        release = asyncio.Event()
+        saturated = asyncio.Event()
+        recovered = asyncio.Event()
+        entered = []
+
+        async def send(key):
+            entered.append(key)
+            if len(entered) == MAX_PENDING_COMMANDS:
+                saturated.set()
+            await release.wait()
+            if key == "HOME":
+                recovered.set()
+            return "up"
+
+        probe = PairingProbe(command_handler=send)
+        probe._loop = asyncio.get_running_loop()
+
+        def burst():
+            for _ in range(250):
+                probe._schedule_forward("DPAD_UP", "DPAD_UP (SHORT)")
+
+        try:
+            # Simulate independent phone connection threads sharing one TV.
+            await asyncio.gather(asyncio.to_thread(burst), asyncio.to_thread(burst))
+            await asyncio.wait_for(saturated.wait(), 2)
+            self.assertEqual(len(entered), MAX_PENDING_COMMANDS)
+            self.assertEqual(probe.status()["state"], "command_busy")
+        finally:
+            release.set()
+        # Drain completion callbacks before checking that capacity is reusable.
+        await asyncio.sleep(0.01)
+        probe._schedule_forward("HOME", "HOME (SHORT)")
+        await asyncio.wait_for(recovered.wait(), 2)
+        self.assertEqual(entered[-1], "HOME")
+
+    async def test_failed_and_cancelled_commands_release_capacity(self):
+        for error in (
+            AppleTVRelayError("unreachable"),
+            RuntimeError("unexpected"),
+            asyncio.CancelledError(),
+        ):
+            with self.subTest(error=type(error).__name__):
+                calls = 0
+                recovered = asyncio.Event()
+
+                async def send(key, failure=error, ready=recovered):
+                    nonlocal calls
+                    calls += 1
+                    if key == "HOME":
+                        ready.set()
+                        return "home"
+                    raise failure
+
+                probe = PairingProbe(command_handler=send)
+                probe._loop = asyncio.get_running_loop()
+                submitted = []
+                submit = asyncio.run_coroutine_threadsafe
+
+                def record_submission(command, loop, send=submit, captured=submitted):
+                    future = send(command, loop)
+                    captured.append(future)
+                    return future
+
+                with patch(
+                    "pairing_probe.asyncio.run_coroutine_threadsafe",
+                    side_effect=record_submission,
+                ):
+                    for _ in range(MAX_PENDING_COMMANDS):
+                        probe._schedule_forward("DPAD_UP", "DPAD_UP (SHORT)")
+                await asyncio.gather(
+                    *(asyncio.wrap_future(future) for future in submitted),
+                    return_exceptions=True,
+                )
+                self.assertEqual(calls, MAX_PENDING_COMMANDS)
+                probe._schedule_forward("HOME", "HOME (SHORT)")
+                await asyncio.wait_for(recovered.wait(), 2)
+                self.assertEqual(calls, MAX_PENDING_COMMANDS + 1)
+
+    async def test_closed_loop_releases_capacity_and_closes_unscheduled_coroutine(self):
+        received = asyncio.Event()
+
+        async def send(key):
+            received.set()
+            return "home"
+
+        probe = PairingProbe(command_handler=send)
+        closed = asyncio.new_event_loop()
+        closed.close()
+        probe._loop = closed
+        for _ in range(MAX_PENDING_COMMANDS + 1):
+            probe._schedule_forward("HOME", "HOME (SHORT)")
+        self.assertEqual(probe.status()["state"], "command_error")
+        self.assertFalse(received.is_set())
+        probe._loop = asyncio.get_running_loop()
+        probe._schedule_forward("HOME", "HOME (SHORT)")
+        await asyncio.wait_for(received.wait(), 2)
 
 
 if __name__ == "__main__":

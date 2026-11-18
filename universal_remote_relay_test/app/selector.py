@@ -316,7 +316,7 @@ function showPairing(pairing) {
   pairingLastState = pairing;
   pairStart.disabled = pairingRequestBusy || pairing.pairing_active;
   pairStop.disabled = pairingRequestBusy || !pairing.pairing_active;
-  const pairingFailed = pairing.state === 'error' || pairing.state.endsWith('_error');
+  const pairingFailed = pairing.state === 'error' || pairing.state === 'command_busy' || pairing.state.endsWith('_error');
   pairStatus.className = pairingFailed ? 'error' : pairing.paired ? 'ok' : 'muted';
   pairStatus.textContent = pairing.message;
   pairCode.hidden = !pairing.pairing_code;

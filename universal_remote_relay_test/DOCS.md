@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.15
+# Universal Remote Relay v0.4.16
 
 Release notes are included in this add-on's `CHANGELOG.md` and are shown by
 Home Assistant when an update is available.
@@ -12,6 +12,15 @@ The Web UI refreshes phone status every five seconds when idle and every second
 during pairing or a connected phone session. Phone and Bluetooth status polling
 pause while the page is hidden and refresh when you return. The phone receiver
 and command forwarding continue running independently of the Web UI.
+
+Silent phone connections are closed after two unanswered keepalive probes
+(approximately 30 seconds without an incoming frame). This releases resources
+without removing saved phone pairing. Idle phones that answer keepalives stay
+connected. A sleeping phone can reconnect using its existing pairing.
+
+At most 16 phone commands can be outstanding across all phones. If the Apple TV
+is slow or unavailable, extra presses show a busy message and are dropped rather
+than replayed later. Wait for the TV to respond before pressing again.
 
 ## Select one target
 
@@ -141,6 +150,23 @@ current physical test device is Xiaomi XMRM-006; Pi compatibility is unverified.
 **Pairing does not enable Bluetooth button forwarding.** The next hardware
 gate is to pair the Xiaomi with the Pi, then inspect its navigation input
 events and make them available to the relay. Physical pairing is still pending.
+
+## Logs and unexpected stops
+
+The service writes immediately to its normal container output; opening the
+Web UI is not required for either logging or command forwarding. If the app's
+Log tab stays on "Loading", try **Settings → System → Logs** and select
+**Universal Remote Relay**. Retained logs can be readable even while the relay
+is stopped. An unresponsive Supervisor, a Home Assistant restart, or a failed
+log request can interrupt the viewer; a spinner alone does not show that the
+relay stopped writing logs.
+
+Save the matching Supervisor and Host log window if the app stops by itself.
+"Killed" indicates the process was forcibly terminated, but does not identify
+why. Correlate the exit time with host OOM records and memory/swap measurements
+before attributing it to the relay. Raising log detail or enabling a restart
+watchdog does not identify or repair the cause. Keep saved pairing and the
+stable fallback intact during diagnosis.
 
 ## Security and scope
 
