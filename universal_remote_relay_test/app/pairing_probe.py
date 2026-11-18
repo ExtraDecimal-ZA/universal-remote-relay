@@ -13,6 +13,7 @@ import socket
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import CancelledError
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -41,6 +42,7 @@ SERVICE_TYPE = "_androidtvremote2._tcp.local."
 DEFAULT_PAIRING_WINDOW = 600
 MAX_FRAME_SIZE = 1024 * 1024
 REMOTE_FEATURES = 0b11  # Ping and key injection only.
+MAX_PENDING_COMMANDS = 16
 
 
 class PairingProbeError(RuntimeError):
@@ -250,6 +252,7 @@ class PairingProbe:
         self.pairing_port = pairing_port
         self.remote_port = remote_port
         self.command_handler = command_handler
+        self._command_slots = threading.BoundedSemaphore(MAX_PENDING_COMMANDS)
         self.cert_path = data_dir / "relay_cert.pem"
         self.key_path = data_dir / "relay_key.pem"
         self.client_cert_path = data_dir / "paired_phone_cert.pem"
@@ -767,17 +770,28 @@ class PairingProbe:
                 remote_connected=True,
             )
             self._send_remote_configuration(connection)
+            idle_timeouts = 0
             while self._active:
                 try:
                     message = RemoteMessage()
                     message.ParseFromString(read_delimited(connection, timeout=10))
                 except TimeoutError:
+                    idle_timeouts += 1
+                    # A backgrounded phone can leave TCP open without responding.
+                    # Release its worker after two unanswered keepalive probes;
+                    # certificate trust remains available for a fresh reconnect.
+                    if idle_timeouts >= 3:
+                        LOG.info(
+                            "Phone-remote connection ended after unanswered keepalives"
+                        )
+                        break
                     ping = RemoteMessage()
                     ping.remote_ping_request.val1 = int(time.monotonic()) & 0x7FFFFFFF
                     write_delimited(connection, ping.SerializeToString())
                     continue
                 except (EOFError, SSL.Error):
                     break
+                idle_timeouts = 0
                 with self._trust_lock:
                     if fingerprint not in self._trusted_fingerprints:
                         break
@@ -877,20 +891,47 @@ class PairingProbe:
                 last_command=summary,
             )
             return
+        if not self._command_slots.acquire(blocking=False):
+            self._update_state(
+                state="command_busy",
+                message="Apple TV is busy. Wait for pending commands before retrying.",
+                last_command=summary,
+            )
+            return
         self._update_state(
             state="command_forwarding",
             message="Sending command to the selected Apple TV…",
             last_command=summary,
         )
-        future = asyncio.run_coroutine_threadsafe(self.command_handler(key), self._loop)
+        command = self.command_handler(key)
+        try:
+            future = asyncio.run_coroutine_threadsafe(command, self._loop)
+        except RuntimeError:
+            command.close()
+            self._command_slots.release()
+            self._update_state(
+                state="command_error",
+                message="Phone receiver is stopping. Reconnect after it restarts.",
+            )
+            return
 
         def completed(result) -> None:
             try:
                 action = result.result()
+            except CancelledError:
+                return
             except AppleTVRelayError as error:
                 self._update_state(
                     state="command_error",
                     message=f"Apple TV command failed: {error}",
+                )
+                LOG.warning(
+                    "Apple TV command forwarding failed: %s", type(error).__name__
+                )
+            except Exception as error:  # noqa: BLE001 - contain a failed background command
+                self._update_state(
+                    state="command_error",
+                    message="Apple TV command failed. Check its connection and retry.",
                 )
                 LOG.warning(
                     "Apple TV command forwarding failed: %s", type(error).__name__
@@ -901,5 +942,7 @@ class PairingProbe:
                     message=f"Command sent to Apple TV ({action}).",
                 )
                 LOG.info("Forwarded phone remote command action=%s", action)
+            finally:
+                self._command_slots.release()
 
         future.add_done_callback(completed)

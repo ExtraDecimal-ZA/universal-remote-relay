@@ -85,6 +85,13 @@ function state(overrides = {}) {
   }
   {
     const h = pairingHarness();
+    h.run(`showPairing(${JSON.stringify(phoneState({state: 'command_busy', message: 'Apple TV is busy. Wait before retrying.'}))})`);
+    assert.equal(h.elements.get('pair-status').className, 'error', 'Backpressure must be visible even while phone trust is saved');
+    assert(h.elements.get('pair-status').textContent.includes('busy'));
+    assert.equal(h.elements.get('pair-start').disabled, false, 'A stalled TV must not disable phone pairing');
+  }
+  {
+    const h = pairingHarness();
     h.run(`showPairing(${JSON.stringify(phoneState())})`);
     assert.deepEqual([...h.delays.values()], [5000], 'Idle status refresh should run five times less often');
     h.run(`showPairing(${JSON.stringify(phoneState({pairing_active: true}))})`);

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.16 - 2026-11-18
+
+- Close silent phone transports after two unanswered keepalive probes, at about
+  30 seconds without an incoming frame. Responding idle phones remain connected;
+  saved pairing is retained for reconnects.
+- Limit outstanding phone commands to 16 across all phones when the Apple TV is
+  slow or unavailable. Excess presses show a busy message and are not replayed
+  later; retry once the TV responds.
+- Release command capacity after success, failure or cancellation, and safely
+  reject submissions when the receiver's event loop is already closed.
+- Add local TLS cleanup/reconnect, healthy idle, concurrent command backpressure,
+  failure recovery and Web UI feedback regressions.
+- Document Home Assistant log retrieval separately from relay log output.
+  These fixes do not establish the cause of host OOM kills or overnight stops;
+  Pi soak testing remains required. Stable v0.4.6 and pairing data are unchanged.
+
 ## 0.4.15 - 2026-11-15
 
 - Drop a pending Apple TV command if the saved target's identity or pairing

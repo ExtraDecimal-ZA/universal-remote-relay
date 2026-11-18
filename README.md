@@ -8,7 +8,7 @@ Home Assistant add-on project for Raspberry Pi 3B+ running
 | Channel | Version | Add-on ID | Scope |
 | --- | --- | --- | --- |
 | Stable | **0.4.6** | `universal_remote_relay` | Apple TV pairing and phone remotes; original v0.4.6 runtime |
-| Experimental | **0.4.15** | `universal_remote_relay_test` | Newer development, including Bluetooth pairing |
+| Experimental | **0.4.16** | `universal_remote_relay_test` | Newer development, including Bluetooth pairing |
 
 Stable replaces the v0.1.3 diagnostic-only entry. It reuses the original
 published v0.4.6 ARM64 image without rebuilding it on the Pi. The historical
@@ -29,9 +29,9 @@ Each add-on includes its own `CHANGELOG.md` for Home Assistant's update view.
 Stable notes cover v0.4.6 and earlier; experimental notes include the newer
 development releases. Keep these files current whenever a version changes.
 
-## Experimental release: v0.4.15
+## Experimental release: v0.4.16
 
-v0.4.15 uses the private, Home Assistant-authenticated Web UI as the only device
+v0.4.16 uses the private, Home Assistant-authenticated Web UI as the only device
 discovery path and saves exactly
 one target device:
 
@@ -53,6 +53,14 @@ because either can change.
 The selector uses Home Assistant Ingress with a Supervisor-assigned dynamic
 port. It does not publish a host port, require a separate login, or return the
 Supervisor token to the browser.
+
+Silent phone transports now close after two unanswered keepalive probes, at
+about 30 seconds without an incoming frame, while responding idle phones stay
+connected. Saved trust remains available for reconnects. Outstanding commands
+are capped at 16 across all phones; excess presses show a busy message instead
+of building an unlimited backlog while the Apple TV is unavailable. These
+resource fixes require Pi soak testing and do not establish that host OOM
+events or overnight shutdowns are resolved.
 
 Multiple Google TV phone remotes can be paired and remembered independently.
 Open a new pairing window for each phone. The Web UI lists saved phone remotes
@@ -98,7 +106,7 @@ selection.
 
 The stable channel is pinned to v0.4.6 at the user's request. Hardware-specific
 limitations above still apply; the stable label does not establish complete
-Google TV emulation or Xiaomi compatibility. Version 0.4.15 stays experimental
+Google TV emulation or Xiaomi compatibility. Version 0.4.16 stays experimental
 until Bluetooth pairing, multiple-phone operation, power, the expanded navigation mapping,
 forwarding, resource-use, and rollback checks pass on the Pi, Samsung phone,
 and Apple TV.
@@ -116,7 +124,7 @@ Keep Start on boot, Watchdog, and Auto update off during the acceptance test.
 
 ## Persistent relay acceptance test
 
-1. Install and start **Universal Remote Relay v0.4.15**.
+1. Install and start **Universal Remote Relay v0.4.16**.
 2. Open the private Web UI.
 3. Confirm the saved Apple TV target, select **Pair with selected Apple TV**,
    and enter the four-digit PIN shown on the television.
