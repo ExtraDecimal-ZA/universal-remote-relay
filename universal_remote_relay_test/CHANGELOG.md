@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.17 - 2026-11-23
+
+- Build the native protobuf parser for ARM64 in a separate build stage instead
+  of shipping the pure-Python fallback. Pin protobuf to the measured version;
+  no compilers are included in the final runtime image.
+- Limit simultaneous phone command transports to four, plus one new pairing
+  session. Saved phone pairings are retained independently of these limits.
+- Isolate the bounded phone worker pool from storage and discovery work, and
+  close sockets and wait for workers during receiver shutdown.
+- Preserve partial protocol frames across keepalive timeouts so a delayed
+  message cannot corrupt subsequent button presses. Invalid messages close
+  that connection cleanly and retain saved trust for reconnecting.
+- Add interrupted-frame TLS, connection-capacity, shared-worker availability,
+  reconnect and shutdown regressions, plus an isolated ARM parser comparison.
+- The November 22-23 logs confirm system-wide memory exhaustion. These changes
+  reduce overhead and bound resources; they do not prove a relay memory leak
+  or resolve the Pi's overall memory shortage. Physical soak testing is required.
+
 ## 0.4.16 - 2026-11-18
 
 - Close silent phone transports after two unanswered keepalive probes, at about

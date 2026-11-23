@@ -1,4 +1,4 @@
-# Universal Remote Relay v0.4.16
+# Universal Remote Relay v0.4.17
 
 Release notes are included in this add-on's `CHANGELOG.md` and are shown by
 Home Assistant when an update is available.
@@ -23,6 +23,16 @@ is slow or unavailable, extra presses show a busy message and are dropped rather
 than replayed later. Wait for the TV to respond before pressing again.
 
 ## Select one target
+
+The receiver accepts up to four simultaneous phone command connections and one
+new pairing session. Additional connections are closed; retry after another
+connection disconnects. This does not remove pairing or limit saved phones.
+The bounded phone worker pool is separate from storage and discovery work.
+
+The ARM image uses a native message parser to reduce parsing overhead. This
+does not establish that the Pi has enough memory for all its running apps.
+After an out-of-memory event, compare a stopped-relay baseline with a controlled
+run, recording host available memory and relay usage. Keep only one relay active.
 
 1. Start the add-on.
 2. Open the add-on's **Web UI**.

@@ -79,6 +79,18 @@ jobs:
             --tag '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}' \
             universal_remote_relay_test
 
+      - name: Compare parser engines without network access
+        shell: bash
+        run: |
+          for engine in python upb; do
+            docker run --rm --platform linux/arm64 --network none \
+              --entrypoint python3 \
+              --env PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="$engine" \
+              --volume "$PWD/universal_remote_relay_test/tests/measure_parser.py:/tmp/measure_parser.py:ro" \
+              '${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}' \
+              /tmp/measure_parser.py
+          done
+
       - name: Start finished ARM64 image and verify readiness
         shell: bash
         run: |
