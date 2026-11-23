@@ -5,3 +5,4 @@ zeroconf==0.153.0
 androidtvremote2==0.3.2
 pyOpenSSL==26.4.0
 dbus-next==0.2.3
+protobuf==7.36.2

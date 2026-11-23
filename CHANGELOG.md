@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.17 - 2026-11-23
+
+- Use a pinned native protobuf parser in the experimental ARM64 image, built
+  separately so compilers are excluded from the final runtime.
+- Bound phone transports to four concurrent command connections and one new
+  pairing session, with a dedicated worker pool and explicit shutdown cleanup.
+- Preserve interrupted frames across keepalive timeouts; close malformed
+  messages cleanly without removing saved pairing.
+- Add TLS interruption, capacity, reconnect and cleanup checks and an ARM image
+  parser comparison. System-wide Pi memory pressure still needs physical testing.
+
 ## 0.4.16 - 2026-11-18
 
 - Close silent phone transports after two unanswered keepalive probes, at about

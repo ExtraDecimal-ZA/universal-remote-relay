@@ -314,7 +314,7 @@ class PairingRoundTripTest(unittest.TestCase):
         with patch(
             "pairing_probe.read_delimited",
             side_effect=lambda connection, **kw: read_delimited(
-                connection, timeout=0.05
+                connection, timeout=0.05, reader=kw.get("reader")
             ),
         ):
             server.start()
@@ -362,7 +362,7 @@ class PairingRoundTripTest(unittest.TestCase):
         with patch(
             "pairing_probe.read_delimited",
             side_effect=lambda connection, **kw: read_delimited(
-                connection, timeout=0.05
+                connection, timeout=0.05, reader=kw.get("reader")
             ),
         ):
             server.start()
@@ -390,6 +390,58 @@ class PairingRoundTripTest(unittest.TestCase):
                 while self.probe.status()["last_command"] != "HOME (SHORT)":
                     self.assertLess(time.monotonic(), deadline)
                     time.sleep(0.01)
+            finally:
+                connection.close()
+                self.probe._active = False
+                server.join(timeout=2)
+                self.assertFalse(server.is_alive())
+
+    def test_partial_key_survives_keepalive_timeout_and_next_key_is_read(self):
+        self.probe.remote_store.add(
+            crypto.load_certificate(crypto.FILETYPE_PEM, self.client_cert.read_bytes()),
+            "Phone",
+        )
+        self.probe._load_trusted_phone()
+        self.probe._active = True
+        server_socket, client_socket = socket.socketpair()
+        server = threading.Thread(
+            target=self.probe._run_remote_session,
+            args=(server_socket, None),
+            daemon=True,
+        )
+        with patch(
+            "pairing_probe.read_delimited",
+            side_effect=lambda connection, **kw: read_delimited(
+                connection, timeout=0.2, reader=kw.get("reader")
+            ),
+        ):
+            server.start()
+            connection = _client_connection(
+                client_socket, self.client_cert, self.client_key
+            )
+            try:
+                for _ in range(3):
+                    read_delimited(connection)
+                key = RemoteMessage()
+                key.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_DPAD_UP
+                key.remote_key_inject.direction = RemoteDirection.SHORT
+                payload = key.SerializeToString()
+                connection.sendall(encode_varint(len(payload)) + payload[:2])
+                # Receiving the ping proves the server timed out mid-frame.
+                ping = RemoteMessage()
+                ping.ParseFromString(read_delimited(connection))
+                self.assertTrue(ping.HasField("remote_ping_request"))
+                connection.sendall(payload[2:])
+                deadline = time.monotonic() + 2
+                while self.probe.status()["last_command"] != "DPAD_UP (SHORT)":
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(0.01)
+                key.remote_key_inject.key_code = RemoteKeyCode.KEYCODE_HOME
+                write_delimited(connection, key.SerializeToString())
+                while self.probe.status()["last_command"] != "HOME (SHORT)":
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(0.01)
+                self.assertTrue(server.is_alive())
             finally:
                 connection.close()
                 self.probe._active = False

@@ -13,7 +13,7 @@ import socket
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -30,6 +30,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from google.protobuf.message import DecodeError
 from OpenSSL import SSL, crypto
 from remote_store import RemoteStore
 from zeroconf import IPVersion, ServiceInfo
@@ -43,6 +44,8 @@ DEFAULT_PAIRING_WINDOW = 600
 MAX_FRAME_SIZE = 1024 * 1024
 REMOTE_FEATURES = 0b11  # Ping and key injection only.
 MAX_PENDING_COMMANDS = 16
+MAX_REMOTE_CLIENTS = 4
+MAX_PAIRING_CLIENTS = 1
 
 
 class PairingProbeError(RuntimeError):
@@ -131,8 +134,15 @@ def _wait_for_tls(connection: SSL.Connection, *, write: bool, deadline: float) -
         raise TimeoutError("TLS operation timed out")
 
 
-def _recv_exact(connection: SSL.Connection, size: int, *, deadline: float) -> bytes:
-    payload = bytearray()
+def _recv_exact(
+    connection: SSL.Connection,
+    size: int,
+    *,
+    deadline: float,
+    payload: bytearray | None = None,
+) -> bytes:
+    if payload is None:
+        payload = bytearray()
     while len(payload) < size:
         if not connection.pending():
             _wait_for_tls(connection, write=False, deadline=deadline)
@@ -146,20 +156,47 @@ def _recv_exact(connection: SSL.Connection, size: int, *, deadline: float) -> by
     return bytes(payload)
 
 
-def read_delimited(connection: SSL.Connection, *, timeout: int = 15) -> bytes:
-    """Read one varint-length-prefixed protocol frame."""
-    deadline = time.monotonic() + timeout
-    length = 0
-    shift = 0
-    while shift < 35:
-        byte = _recv_exact(connection, 1, deadline=deadline)[0]
-        length |= (byte & 0x7F) << shift
-        if not byte & 0x80:
-            if length > MAX_FRAME_SIZE:
-                raise PairingProbeError("Protocol frame is too large")
-            return _recv_exact(connection, length, deadline=deadline)
-        shift += 7
-    raise PairingProbeError("Invalid protocol frame length")
+class FrameReader:
+    """Retain a bounded partial frame across remote keepalive read deadlines."""
+
+    def __init__(self) -> None:
+        self._length = 0
+        self._shift = 0
+        self._header_complete = False
+        self._payload = bytearray()
+
+    def read(self, connection: SSL.Connection, *, timeout: float) -> bytes:
+        deadline = time.monotonic() + timeout
+        while not self._header_complete:
+            if self._shift >= 35:
+                raise PairingProbeError("Invalid protocol frame length")
+            byte = _recv_exact(connection, 1, deadline=deadline)[0]
+            self._length |= (byte & 0x7F) << self._shift
+            self._shift += 7
+            if not byte & 0x80:
+                if self._length > MAX_FRAME_SIZE:
+                    raise PairingProbeError("Protocol frame is too large")
+                self._header_complete = True
+        result = _recv_exact(
+            connection, self._length, deadline=deadline, payload=self._payload
+        )
+        self._length = 0
+        self._shift = 0
+        self._header_complete = False
+        self._payload.clear()
+        return result
+
+
+def read_delimited(
+    connection: SSL.Connection,
+    *,
+    timeout: float = 15,
+    reader: FrameReader | None = None,
+) -> bytes:
+    """Read one frame; pass a persistent reader when retrying idle timeouts."""
+    return (reader if reader is not None else FrameReader()).read(
+        connection, timeout=timeout
+    )
 
 
 def write_delimited(connection: SSL.Connection, payload: bytes) -> None:
@@ -269,7 +306,8 @@ class PairingProbe:
         self._accept_tasks: list[asyncio.Task[None]] = []
         self._pair_listener: socket.socket | None = None
         self._pair_accept_task: asyncio.Task[None] | None = None
-        self._client_tasks: set[asyncio.Task[None]] = set()
+        self._client_tasks: set[asyncio.Future[None]] = set()
+        self._client_executor: ThreadPoolExecutor | None = None
         self._client_sockets: set[socket.socket] = set()
         self._pairing_client_sockets: set[socket.socket] = set()
         self._client_socket_lock = threading.Lock()
@@ -454,18 +492,27 @@ class PairingProbe:
         ):
             self._pairing_expiry_task.cancel()
         self._pairing_expiry_task = None
+        accept_tasks = tuple(self._accept_tasks)
+        for task in accept_tasks:
+            task.cancel()
+        self._accept_tasks.clear()
+        await asyncio.gather(*accept_tasks, return_exceptions=True)
         for listener in self._listeners:
             listener.close()
         self._listeners.clear()
-        for task in self._accept_tasks:
-            task.cancel()
-        self._accept_tasks.clear()
         with self._client_socket_lock:
             client_sockets = tuple(self._client_sockets)
         for client_socket in client_sockets:
             with suppress(OSError):
                 client_socket.shutdown(socket.SHUT_RDWR)
             client_socket.close()
+        if self._client_tasks:
+            _, pending = await asyncio.wait(tuple(self._client_tasks), timeout=2)
+            if pending:
+                LOG.warning("Phone workers are still finishing shutdown")
+        if self._client_executor is not None:
+            self._client_executor.shutdown(wait=False, cancel_futures=True)
+            self._client_executor = None
         if self._service_info is not None and self._zeroconf is not None:
             with suppress(Exception):
                 await self._zeroconf.async_unregister_service(self._service_info)
@@ -508,20 +555,37 @@ class PairingProbe:
                 client_socket, address = await loop.sock_accept(listener)
                 client_socket.setblocking(True)
                 with self._client_socket_lock:
+                    count = (
+                        len(self._pairing_client_sockets)
+                        if pairing
+                        else len(self._client_sockets)
+                        - len(self._pairing_client_sockets)
+                    )
+                    limit = MAX_PAIRING_CLIENTS if pairing else MAX_REMOTE_CLIENTS
+                    if count >= limit:
+                        client_socket.close()
+                        LOG.debug(
+                            "Phone connection refused: active connection limit reached"
+                        )
+                        continue
                     self._client_sockets.add(client_socket)
                     if pairing:
                         self._pairing_client_sockets.add(client_socket)
                 handler = (
                     self._run_pairing_session if pairing else self._run_remote_session
                 )
-                task = loop.create_task(
-                    asyncio.to_thread(
-                        self._guard_client,
-                        handler,
-                        client_socket,
-                        address,
-                        pairing,
+                if self._client_executor is None:
+                    self._client_executor = ThreadPoolExecutor(
+                        max_workers=MAX_REMOTE_CLIENTS + MAX_PAIRING_CLIENTS,
+                        thread_name_prefix="phone-receiver",
                     )
+                task = loop.run_in_executor(
+                    self._client_executor,
+                    self._guard_client,
+                    handler,
+                    client_socket,
+                    address,
+                    pairing,
                 )
                 self._client_tasks.add(task)
                 task.add_done_callback(self._client_tasks.discard)
@@ -771,10 +835,17 @@ class PairingProbe:
             )
             self._send_remote_configuration(connection)
             idle_timeouts = 0
+            reader = FrameReader()
             while self._active:
                 try:
                     message = RemoteMessage()
-                    message.ParseFromString(read_delimited(connection, timeout=10))
+                    message.ParseFromString(
+                        read_delimited(connection, timeout=10, reader=reader)
+                    )
+                except DecodeError as error:
+                    raise PairingProbeError(
+                        "Invalid remote message; reconnect required"
+                    ) from error
                 except TimeoutError:
                     idle_timeouts += 1
                     # A backgrounded phone can leave TCP open without responding.
